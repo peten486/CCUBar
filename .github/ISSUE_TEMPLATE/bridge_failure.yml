@@ -1,0 +1,92 @@
+name: "🌉 Bridge failure"
+description: The Python bridge won't start, fails to read cookies, or returns errors from `/api/usage`.
+title: "[Bridge] "
+labels: ["bridge", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The bridge scrapes your **locally logged-in `claude.ai` cookie** and proxies the undocumented `/api/organizations/<id>/usage` endpoint. It breaks when:
+
+        - Python or `pip install -r bridge/requirements.txt` wasn't run
+        - The app isn't granted Full Disk Access (Safari cookies) or the Keychain dialog was dismissed (Chrome cookies)
+        - `claude.ai` rotated its endpoint or TLS fingerprinting
+        - The `sessionKey` cookie expired (≈ 30 days)
+
+        Please provide as much of the following as you can — `Report an issue` in Settings pre-fills most of it.
+
+  - type: input
+    id: app_version
+    attributes:
+      label: CCU Bar version / commit
+      placeholder: "v0.1  (92f6e12)"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python interpreter
+      description: Output of `python3 --version` and the full path CCU Bar picked (visible in `runner_diag.log`).
+      placeholder: "Python 3.12.7, /opt/homebrew/bin/python3"
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Primary browser used for claude.ai
+      options:
+        - Safari
+        - Chrome
+        - Brave
+        - Edge
+        - Firefox (not yet supported)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What's the visible symptom?
+      options:
+        - Onboarding stops at "Waiting for the port to open…" (20 s timeout)
+        - Onboarding fails at "Fetching first usage snapshot…" (30 s timeout)
+        - Menu bar stays at `[!] Setup` or similar error state after manual Refresh
+        - `/api/usage` returns HTTP 4xx / 5xx
+        - Bridge process crashes and keeps restarting (see `app.log` restart lines)
+        - Other (describe in the logs section)
+    validations:
+      required: true
+
+  - type: textarea
+    id: runner_diag
+    attributes:
+      label: "`runner_diag.log` tail"
+      description: "`~/Library/Application Support/CCUBar/bridge/runner_diag.log` — shows the spawn steps."
+      render: text
+
+  - type: textarea
+    id: app_log
+    attributes:
+      label: "`app.log` tail"
+      description: "`~/Library/Application Support/CCUBar/bridge/app.log` — shows what the bridge saw on stdout/stderr and what the cookie / API calls returned."
+      render: text
+
+  - type: textarea
+    id: bridge_stderr
+    attributes:
+      label: "`bridge_stderr.log` tail (if any)"
+      description: Only populated when Python crashed on import or before the logger started. Paste whatever is there; if the file is empty, you can skip this.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Sanity checks
+      options:
+        - label: I'm signed into claude.ai in the browser I selected above, and the session is not expired.
+          required: true
+        - label: I've tried hitting `curl http://127.0.0.1:<port>/api/usage` directly.
+          required: false
+        - label: I've already granted Full Disk Access to CCUBar.app (only needed if using Safari cookies).
+          required: false

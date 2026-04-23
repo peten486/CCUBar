@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & general discussion
+    url: https://github.com/peten486/CCUBar/discussions
+    about: Please use Discussions for open-ended questions, suggestions without a concrete design, or chatting about the project.

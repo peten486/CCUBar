@@ -1,0 +1,54 @@
+name: "💡 Feature request"
+description: Suggest a new capability or a concrete enhancement to an existing one.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests with a clear user problem and a proposed solution tend to get traction quickly. Open-ended ideas are welcome too — just note that they may be redirected to [Discussions](https://github.com/peten486/CCUBar/discussions).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: What workflow is painful today? Who suffers from it?
+      placeholder: |
+        When I'm pair-programming and my weekly quota dips below 10 %, I don't want to have
+        to click the menu bar to see exactly how many minutes I have left…
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the new behaviour as concretely as you can. UI sketches / mockups go a long way.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: What else could solve the same problem? Why is your proposal better?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Does this touch the Swift app, the Python bridge, or both?
+      options:
+        - Swift app only (menu bar / popover / settings / onboarding)
+        - Bridge only (Python / Flask / cookies / claude.ai API shape)
+        - Both
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to help implement this (PR welcome either way — just checking).

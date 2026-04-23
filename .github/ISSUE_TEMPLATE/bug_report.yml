@@ -1,0 +1,76 @@
+name: "🐞 Bug report"
+description: Something in the Swift app (menu bar, popover, settings, onboarding) is broken or wrong.
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill in each section below so we can reproduce what you're seeing quickly.
+
+        For bridge/Python-side issues (port not opening, cookie extraction failing, `/api/usage` returning errors), please use the **Bridge failure** template instead.
+
+  - type: input
+    id: app_version
+    attributes:
+      label: CCU Bar version
+      description: Settings window → footer shows `CCU Bar vX.Y`. If you built from source, paste the short commit hash from `git rev-parse --short HEAD`.
+      placeholder: "v0.1  (or  92f6e12)"
+    validations:
+      required: true
+
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS version
+      placeholder: "14.5 (Sonoma, Apple Silicon)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Please be specific. "Right-click menu-bar icon → Settings → change language to Japanese → port field empties out" is much more actionable than "Settings window breaks".
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include screenshots if the problem is visual. Drag the image into this box to attach it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        If the menu bar shows `[!] Error` / `Setup`, please paste the last ~50 lines of
+        `~/Library/Application Support/CCUBar/bridge/app.log` and
+        `~/Library/Application Support/CCUBar/bridge/bridge_stderr.log`.
+        The Settings window's **Report an issue** button pre-fills this for you.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Sanity checks
+      options:
+        - label: I'm running the latest prebuilt bundle from `build/` or built from current `main`.
+          required: true
+        - label: The bundle lives somewhere stable (`/Applications/CCUBar.app` or similar) — not on an external volume that gets ejected.
+          required: true
