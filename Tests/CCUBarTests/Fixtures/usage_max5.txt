@@ -1,0 +1,8 @@
+Claude Code /usage
+
+Plan: Max 5x
+
+5-hour session: 62% (resets in 2h 11m)
+Weekly: 48%
+
+Tip: set a reminder around 75% if you have long-running tasks.

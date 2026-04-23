@@ -1,0 +1,45 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserdatad/
+DerivedData/
+
+# Build artifacts
+build/
+*.dSYM/
+*.zip
+
+# Nothing to ignore under Resources/ — the Twemoji SVG and generated .icns are committed
+# so that `./Scripts/build_app.sh` works on a fresh clone without network access.
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project-local AI-coding-assistant config and artifacts
+.claude/
+.cursor/
+.copilot/
+.aider*
+.mcp.json
+CLAUDE.md
+AGENTS.md
+
+# Private planning / design / release docs (kept local, not published)
+REQUIREMENTS_AND_DESIGN.md
+DISTRIBUTION.md
+docs/plans/

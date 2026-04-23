@@ -1,0 +1,25 @@
+# =============================================================
+# Claude Usage API 서버 의존성 패키지
+# Python 3.8 이상 필요
+# 설치: pip install -r requirements.txt
+# =============================================================
+
+# --- 웹 서버 ---
+# Flask: REST API 서버 프레임워크 (/api/usage 엔드포인트 제공)
+flask>=2.0.0
+
+# --- SSL 인증서 ---
+# certifi: Mozilla CA 인증서 번들 (macOS에서 SSL 인증서 검증 오류 방지)
+certifi>=2024.0.0
+
+# --- 브라우저 쿠키 추출 ---
+# browser-cookie3: Safari(binarycookies) + Chrome(AES 복호화) 통합 쿠키 추출
+browser-cookie3>=0.19.1
+
+# --- Chrome 쿠키 복호화 (browser-cookie3 의존성) ---
+# cryptography: AES-128-CBC 복호화 (Chrome 쿠키 sessionKey 추출)
+cryptography>=41.0.0
+
+# --- Cloudflare 우회 HTTP 클라이언트 ---
+# curl_cffi: Chrome TLS 핑거프린트 모방 (Cloudflare Turnstile 우회)
+curl_cffi>=0.7.0

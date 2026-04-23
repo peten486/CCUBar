@@ -1,0 +1,5 @@
+[claude]
+# Your Claude organization UUID. You can find it in any XHR request from
+# claude.ai — look for the path segment right after /api/organizations/.
+# Copy this file to `token.ini` and fill in the value.
+org_id = 00000000-0000-0000-0000-000000000000
