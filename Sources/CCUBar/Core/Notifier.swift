@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import UserNotifications
 
@@ -6,7 +7,14 @@ protocol NotificationDispatching: AnyObject {
     func dispatch(title: String, body: String)
 }
 
-final class Notifier: NotificationDispatching {
+final class Notifier: NSObject, NotificationDispatching, UNUserNotificationCenterDelegate {
+    override init() {
+        super.init()
+        // Route notification clicks through this delegate so they activate the
+        // existing app instead of launching a new one.
+        UNUserNotificationCenter.current().delegate = self
+    }
+
     func requestAuthorization() async {
         do {
             _ = try await UNUserNotificationCenter.current()
@@ -28,6 +36,31 @@ final class Notifier: NotificationDispatching {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    /// Show the banner/sound even while CCU Bar is in the foreground. Without this
+    /// macOS suppresses notifications whenever our process is active.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    /// Called when the user clicks the notification. Just bring the running app to
+    /// the front — do NOT spawn a new instance.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        completionHandler()
     }
 }
 

@@ -12,6 +12,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables: Set<AnyCancellable> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single-instance guard: if another CCU Bar is already running, surface it
+        // and terminate this process so notification clicks / Launch Services /
+        // multiple bundle paths can't spawn a second copy.
+        if Self.activateExistingInstanceIfRunning() {
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
 
         let settingsStore = SettingsStore()
@@ -75,6 +83,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         usageStore?.stop()
         bridgeRunner.stop()
+    }
+
+    /// Returns `true` if another instance of the same bundle is already running and
+    /// we've asked it to come to the front. The caller should then terminate.
+    private static func activateExistingInstanceIfRunning() -> Bool {
+        guard let bundleId = Bundle.main.bundleIdentifier else { return false }
+        let myPid = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+            .filter { $0.processIdentifier != myPid }
+        guard let existing = others.first else { return false }
+        existing.activate(options: [.activateIgnoringOtherApps])
+        return true
     }
 
     // MARK: - Bridge process lifecycle

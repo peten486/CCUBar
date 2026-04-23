@@ -11,9 +11,9 @@ xcuserdata/
 DerivedData/
 
 # Build artifacts
-build/
 *.dSYM/
-*.zip
+# build/ is committed so users can grab the prebuilt CCUBar.app
+# without installing a Swift toolchain first.
 
 # Nothing to ignore under Resources/ — the Twemoji SVG and generated .icns are committed
 # so that `./Scripts/build_app.sh` works on a fresh clone without network access.
