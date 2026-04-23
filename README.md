@@ -93,20 +93,37 @@ Any Flask/Node/Go service that produces the same format would work — CCU Bar o
 ### Prerequisites
 
 - macOS 13 Ventura or newer
-- Xcode Command Line Tools (`xcode-select --install`) — gives you Swift 5.9+ and `iconutil`
-- Python 3.8+ with pip — needed by the bundled bridge. If you use Homebrew: `brew install python3` already gives you what you need.
+- Python 3.8+ with pip — required by the bundled bridge (`brew install python3` is the easiest way)
 
-### Build and install
+The Swift toolchain is **not** required for normal users — a prebuilt `CCUBar.app` ships inside the repo under `build/`.
+
+### Option 1 — Install the prebuilt bundle (recommended)
 
 ```bash
 git clone https://github.com/peten486/CCUBar.git
 cd CCUBar
-./Scripts/build_app.sh                   # produces build/CCUBar.app
-cp -R build/CCUBar.app /Applications/    # optional — or just run it in place
-open /Applications/CCUBar.app            # or: open build/CCUBar.app
+cp -R build/CCUBar.app /Applications/
+open /Applications/CCUBar.app
 ```
 
-> ℹ️ On first launch macOS Gatekeeper may warn that the app is from an unidentified developer (ad-hoc signed, not notarised). Right-click `CCUBar.app` → **Open** → **Open** to approve it once; subsequent launches go through silently.
+Prefer not to clone? Download `build/CCUBar.app.zip` from the repo, unzip it, and drag `CCUBar.app` into `/Applications/`.
+
+> ℹ️ On first launch macOS Gatekeeper may warn that the app is from an unidentified developer (ad-hoc signed, not notarised). Right-click `CCUBar.app` → **Open** → **Open** to approve it once; subsequent launches go through silently. If macOS says the bundle is "damaged", strip the quarantine bit:
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/CCUBar.app
+> ```
+
+### Option 2 — Build from source
+
+Only needed if you're modifying the code. Requires Xcode Command Line Tools (`xcode-select --install`) for Swift 5.9+ and `iconutil`.
+
+```bash
+git clone https://github.com/peten486/CCUBar.git
+cd CCUBar
+./Scripts/build_app.sh                   # regenerates build/CCUBar.app
+cp -R build/CCUBar.app /Applications/
+open /Applications/CCUBar.app
+```
 
 The first launch starts the initial setup wizard below.
 
