@@ -90,13 +90,25 @@ Any Flask/Node/Go service that produces the same format would work — CCU Bar o
 
 ## Installation
 
+### Prerequisites
+
+- macOS 13 Ventura or newer
+- Xcode Command Line Tools (`xcode-select --install`) — gives you Swift 5.9+ and `iconutil`
+- Python 3.8+ with pip — needed by the bundled bridge. If you use Homebrew: `brew install python3` already gives you what you need.
+
+### Build and install
+
 ```bash
 git clone https://github.com/peten486/CCUBar.git
 cd CCUBar
-./Scripts/build_app.sh
+./Scripts/build_app.sh                   # produces build/CCUBar.app
+cp -R build/CCUBar.app /Applications/    # optional — or just run it in place
+open /Applications/CCUBar.app            # or: open build/CCUBar.app
 ```
 
-Then drag `build/CCUBar.app` into `/Applications/` (or just double-click to run it in place). The first launch starts the initial setup wizard below.
+> ℹ️ On first launch macOS Gatekeeper may warn that the app is from an unidentified developer (ad-hoc signed, not notarised). Right-click `CCUBar.app` → **Open** → **Open** to approve it once; subsequent launches go through silently.
+
+The first launch starts the initial setup wizard below.
 
 ### Initial setup (first launch)
 
