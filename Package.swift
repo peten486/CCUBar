@@ -12,8 +12,7 @@ let package = Package(
         .testTarget(
             name: "CCUBarTests",
             dependencies: ["CCUBar"],
-            path: "Tests/CCUBarTests",
-            resources: [.copy("Fixtures")]
+            path: "Tests/CCUBarTests"
         )
     ]
 )

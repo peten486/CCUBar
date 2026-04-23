@@ -108,7 +108,7 @@ The first time you open CCU Bar it walks you through a two-step wizard, then sta
   <img src="docs/screenshots/init-setup-1.png" alt="Language selection (step 1 of 2)" />
   <br />
   <strong>1. Language</strong><br />
-  Pick English / 日本語 / 한국어. The choice propagates to every window (popover, settings, notifications) immediately and can be changed later in Settings.
+  Choose English, Japanese, or Korean. The choice propagates to every window (popover, settings, notifications) immediately and can be changed later in Settings.
 </td>
 <td width="50%">
   <img src="docs/screenshots/init-setup-2.png" alt="Bridge port entry (step 2 of 2)" />
@@ -168,7 +168,7 @@ CCU Bar itself does not phone home, but the bundled bridge needs to read the `se
 | Symptom | Fix |
 |---|---|
 | Onboarding step 3 fails with "bridge did not open port" | Usually a Python dependency issue — click **Install dependencies** on the failure screen |
-| `app.log` shows *Safari 쿠키 접근 권한 없음 / Operation not permitted* | Grant **Full Disk Access** to `CCUBar.app` and retry from Settings → Randomize/Change |
+| `app.log` reports a Safari cookie read failure (`Operation not permitted`) | Grant **Full Disk Access** to `CCUBar.app` and retry from Settings → Randomize/Change |
 | Menu-bar bar never updates after enabling *Launch at login* | Make sure the app lives at `/Applications/CCUBar.app` (required by `SMAppService`). Moving or renaming the bundle breaks the login item |
 
 ---
@@ -188,29 +188,25 @@ Thresholds 75 % and 90 % each fire a single `UNUserNotificationCenter` alert, de
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────┐
-│                    CCUBarApp (@main)               │
-│              AppDelegate + MenuBarController       │
-└────────────────┬───────────────────────────────────┘
-                 │
-       ┌─────────┼──────────┬─────────────┬──────────┐
-       ▼         ▼          ▼             ▼          ▼
-┌────────────┐┌────────┐┌─────────┐ ┌────────┐ ┌──────────┐
-│CompositeFet││UsageSt.││Notifier │ │Settings│ │LoginItem │
-│ ├─ HTTP    ││ObsObj  ││UN       │ │Store   │ │Manager   │
-│ └─ PTY(fb) ││@Published         │ │        │ │SMAppSvc  │
-└─────┬──────┘└───┬────┘└─────────┘ └────────┘ └──────────┘
-      │          ▼
-      │    ┌──────────────┐
-      │    │ PopoverView  │   SwiftUI
-      │    │ StatusItemView│  AppKit
-      │    └──────────────┘
-      ▼
-┌─────────────────────┐
-│ HttpUsageFetcher    │  URLSession → /api/usage
-│ PTYUsageFetcher     │  forkpty + `claude` CLI (fallback)
-│ UsageParser         │  regex extraction for PTY path
-└─────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│                   CCUBarApp (@main)                 │
+│      AppDelegate + MenuBarController + BridgeRunner │
+└───────┬───────────────────┬────────────────┬────────┘
+        │                   │                │
+        ▼                   ▼                ▼
+┌───────────────┐   ┌───────────────┐   ┌──────────────┐
+│ UsageStore    │   │ SettingsStore │   │ Notifier     │
+│ (@Published)  │   │ UserDefaults  │   │ UN center    │
+└──────┬────────┘   └───────────────┘   └──────────────┘
+       ▼
+┌───────────────────┐     ┌──────────────┐
+│ BridgeFetcher     │ ──▶ │ HttpUsageFtchr│  URLSession → /api/usage
+│ (reads port       │     └──────────────┘
+│  from Settings)   │
+└───────────────────┘                    ┌──────────────────────────┐
+                                         │ bridge/ (Python, Flask)  │
+                                         │ spawned by BridgeRunner  │
+                                         └──────────────────────────┘
 ```
 
 Key components:
@@ -218,16 +214,22 @@ Key components:
 | File | Responsibility |
 |---|---|
 | `Sources/CCUBar/App/CCUBarApp.swift` | `@main`, `Settings {}` scene |
-| `Sources/CCUBar/App/AppDelegate.swift` | DI wiring, accessory activation policy |
+| `Sources/CCUBar/App/AppDelegate.swift` | DI wiring, bridge bootstrap, accessory activation policy |
 | `Sources/CCUBar/MenuBar/MenuBarController.swift` | `NSStatusItem`, popover, context menu |
 | `Sources/CCUBar/MenuBar/StatusItemProgressView.swift` | Custom `NSView` progress-bar renderer |
 | `Sources/CCUBar/Popover/PopoverView.swift` | SwiftUI popover (three quotas + dark HUD) |
-| `Sources/CCUBar/Popover/SettingsView.swift` | SwiftUI settings window |
-| `Sources/CCUBar/Core/HttpUsageFetcher.swift` | Primary fetcher (JSON API) |
-| `Sources/CCUBar/Core/UsageFetcher.swift` | PTY fallback via `forkpty` |
-| `Sources/CCUBar/Core/UsageStore.swift` | `@Published` state, threshold detection |
+| `Sources/CCUBar/Popover/OnboardingView.swift` | Two-step first-launch wizard (language + port) |
+| `Sources/CCUBar/Popover/SettingsView.swift` | Settings window |
+| `Sources/CCUBar/Core/BridgeRunner.swift` | Spawns/terminates the Python bridge; port + orphan cleanup |
+| `Sources/CCUBar/Core/HttpUsageFetcher.swift` | HTTP client for `/api/usage` |
+| `Sources/CCUBar/Core/UsageFetcher.swift` | `UsageFetching` protocol + `BridgeFetcher` thin wrapper |
+| `Sources/CCUBar/Core/UsageStore.swift` | `@Published` state, threshold detection, retry backoff |
 | `Sources/CCUBar/Core/Notifier.swift` | `UNUserNotificationCenter` wrapper |
+| `Sources/CCUBar/Core/PipInstaller.swift` | Async `pip install --user -r requirements.txt` helper |
+| `Sources/CCUBar/Core/IssueReporter.swift` | Composes a pre-filled GitHub issue URL with log tail |
+| `Sources/CCUBar/Core/LoginItemManager.swift` | `SMAppService.mainApp` wrapper |
 | `Sources/CCUBar/Utilities/Localization.swift` | Three-language string catalogue |
+| `Sources/CCUBar/Utilities/GaugeRenderer.swift` | Percent → tier/colour + label formatter |
 
 All business logic lives in free structs/actors; UI types depend on them and are fully testable.
 
@@ -238,24 +240,29 @@ All business logic lives in free structs/actors; UI types depend on them and are
 ```
 Claude_Usage_Monitor/
 ├── Package.swift
-├── README.md                   ← this file
-├── NOTICE.md                   ← Twemoji attribution
-├── LICENSE                     ← MIT
-├── Sources/CCUBar/             ← app target
-│   ├── App/                    (@main + AppDelegate)
-│   ├── MenuBar/                (NSStatusItem + progress view)
-│   ├── Popover/                (SwiftUI views)
-│   ├── Core/                   (fetcher/parser/store/notifier)
-│   ├── Models/                 (value types)
-│   └── Utilities/              (GaugeRenderer, ClaudeLocator, Localization)
-├── Tests/CCUBarTests/          ← 21 unit tests + 1 opt-in integration test
+├── README.md                      ← this file
+├── NOTICE.md                      ← SF Symbols / emoji attribution
+├── LICENSE                        ← MIT
+├── Sources/CCUBar/                ← app target
+│   ├── App/                       (@main + AppDelegate)
+│   ├── MenuBar/                   (NSStatusItem + progress view)
+│   ├── Popover/                   (Popover, Onboarding, Settings)
+│   ├── Core/                      (BridgeRunner, fetchers, store, notifier,
+│   │                               PipInstaller, IssueReporter, LoginItem)
+│   ├── Models/                    (UsageSnapshot, FetchState, Settings)
+│   └── Utilities/                 (GaugeRenderer, Localization)
+├── Tests/CCUBarTests/             ← 16 unit tests + 1 opt-in live test
 ├── Resources/
-│   ├── AppIcon.icns            ← generated from Twemoji SVG
-│   └── twemoji_robot.svg       ← CC-BY 4.0
+│   └── AppIcon.icns               ← generated from SF Symbol
+├── bridge/                        ← bundled Python service (see bridge/README.md)
+│   ├── claude_usage_scraper.py    ← Flask server + cookie extractor
+│   ├── requirements.txt
+│   ├── run.sh / stop.sh / refresh_keychain.sh
+│   └── token.ini.example
 └── Scripts/
-    ├── build_app.sh            ← Swift build + bundle assembly
-    ├── generate_app_icon.sh    ← Twemoji SVG → iconset → .icns
-    ├── render_icon.swift       ← SVG rasterizer helper
+    ├── build_app.sh               ← Swift build + bundle assembly
+    ├── generate_app_icon.sh       ← SF Symbol → iconset → .icns
+    ├── generate_sf_symbol_icon.swift
     └── Info.plist.template
 ```
 
@@ -265,11 +272,13 @@ Claude_Usage_Monitor/
 
 ```bash
 swift build                # compile (debug)
-swift test                 # 21 unit tests, <0.1 s total
+swift test                 # 16 unit tests, <0.1 s total
 swift test --filter Xxx    # filter by suite/test
-CCUBAR_LIVE=1 swift test --filter LiveFetchTests   # hits the configured local endpoint
-CCUBAR_DEBUG=1 swift run CCUBar                    # verbose PTY trace
-./Scripts/build_app.sh     # build + bundle
+
+# Opt-in: hit the live bridge running on <port>
+CCUBAR_LIVE_PORT=65136 swift test --filter LiveFetchTests
+
+./Scripts/build_app.sh     # build + bundle the .app
 ```
 
 Tests are in pure XCTest and use protocol-based fakes (`UsageFetching` / `NotificationDispatching`) — no UI harness needed.
@@ -280,8 +289,8 @@ Tests are in pure XCTest and use protocol-based fakes (`UsageFetching` / `Notifi
 
 | Symptom | Fix |
 |---|---|
-| Menu-bar shows `Setup` / no bar | Verify Settings → Data source is configured (scraper port reachable, or sessionKey + org ID populated) |
-| Menu-bar shows `…` forever | Launch from Terminal with `CCUBAR_DEBUG=1 build/CCUBar.app/Contents/MacOS/CCUBar` — inspect stderr |
+| Menu-bar shows `Setup` / no bar | Open Settings and confirm the Bridge port is set; check that the Running chip is green |
+| Menu-bar shows `…` forever | Check `~/Library/Application Support/CCUBar/bridge/bridge_stderr.log` and `app.log` for the bridge's own error trail |
 | Popover renders light-grey | Make sure you're running the latest build; older revisions didn't force `vibrantDark` |
 | Notification not firing | Check *System Settings → Notifications → CCU Bar* is allowed; the first launch asks once |
 | Icon didn't update in Finder | `touch build/CCUBar.app && killall Finder` (or re-register via `lsregister`) |
@@ -291,7 +300,7 @@ Tests are in pure XCTest and use protocol-based fakes (`UsageFetching` / `Notifi
 
 ## Limitations & roadmap
 
-- **Hard dependency on a local HTTP service** — by design, since Claude Code's `/usage` slash-command isn't exposed non-interactively. Once Anthropic publishes a machine-readable endpoint, the PTY fallback will be dropped and the HTTP fetcher will be repointed.
+- **Hard dependency on the bundled bridge** — by design, since Claude Code's `/usage` slash-command isn't exposed non-interactively. If Anthropic publishes a machine-readable endpoint, the bridge can be replaced with a direct call.
 - **No historical chart** — each refresh is a point-in-time snapshot; sparkline support is a post-1.0 item.
 - **No Windows / Linux support** — AppKit-native; would need a Tauri/Electron port.
 - **No App Store build** — uses `SMAppService` in a way that needs `/Applications`, fine for direct download, not for sandboxed MAS distribution.

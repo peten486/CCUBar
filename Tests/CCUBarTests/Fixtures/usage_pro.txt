@@ -1,7 +1,0 @@
-Claude Code /usage
-
-Plan: Pro
-
-Current session: 29.0% (resets in 1h 23m)
-
-For detailed cost breakdowns, run `ccusage`.

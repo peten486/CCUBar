@@ -1,8 +1,0 @@
-Claude Code /usage
-
-Plan: Max 20x
-
-Current session: 88% (resets at 18:00)
-Weekly usage: 82.0%
-
-You are approaching your weekly limit.
