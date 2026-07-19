@@ -14,11 +14,15 @@
 		</data>
 		<key>Resources/bridge/README.md</key>
 		<data>
-		jpYM0By8vRUlSWMErSvRSbosey8=
+		JrMuc2Eo0ovPF0MvSk6YL3KwZKk=
+		</data>
+		<key>Resources/bridge/claude_token_stats.py</key>
+		<data>
+		AqJBtastFcw8AIX4Y2Ux7dAAKJA=
 		</data>
 		<key>Resources/bridge/claude_usage_scraper.py</key>
 		<data>
-		jXlcmHQcplbVjMeBR29y2UDhbCQ=
+		AF3O1en0vCouKqp135q/Lh/cRs8=
 		</data>
 		<key>Resources/bridge/refresh_keychain.sh</key>
 		<data>
@@ -61,14 +65,21 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			lN7C1gM/tquQ3xY6fPh+uMiqJBkwedyzES9DBH7hmZY=
+			2YfVWHfVy+dZBDKChVWaZUlPn81rN9Fjwo6gUtWOjH4=
+			</data>
+		</dict>
+		<key>Resources/bridge/claude_token_stats.py</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			UH8z9uYaP39vv13OKLpJskBpprayEGzfkL5Sm+9Lwk4=
 			</data>
 		</dict>
 		<key>Resources/bridge/claude_usage_scraper.py</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			Zf4NWDIYT86yU2nhJYeDo0ZpGo1HN4+4+outU5wQe7E=
+			/3XOXDq6VaGr3DM+4eDfYp9ETsApPcROps2rue2jPlg=
 			</data>
 		</dict>
 		<key>Resources/bridge/refresh_keychain.sh</key>
