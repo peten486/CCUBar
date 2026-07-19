@@ -86,6 +86,8 @@ Expected JSON from the bridge:
 
 Any Flask/Node/Go service that produces the same format would work — CCU Bar only speaks HTTP over `127.0.0.1` on the port you configure.
 
+Those three keys are all the app itself reads. The bundled bridge returns more than that — a `tokens` block with absolute token counts, per-model, per-hour and per-project breakdowns read from your local Claude Code logs, plus `cached` / `source` / `timestamp` metadata. Unknown keys are ignored, so a minimal replacement service does not have to supply them. See [`bridge/README.md`](bridge/README.md#token-field-reference) for what every field means.
+
 ---
 
 ## Installation
