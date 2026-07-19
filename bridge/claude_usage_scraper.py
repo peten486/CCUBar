@@ -21,7 +21,7 @@ Flask REST API 서버 모드(--server)로 실행하면 /api/usage 엔드포인�
 """
 
 # --- Flask: REST API 서버 ---
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 # --- 표준 라이브러리 ---
 import os
@@ -42,6 +42,13 @@ import browser_cookie3
 # --- Cloudflare 우회 HTTP 클라이언트 ---
 from curl_cffi import requests as curl_requests
 
+# --- 로컬 Claude Code 로그 기반 토큰 집계 (부가 기능) ---
+# 순수 부가물이므로, 번들에서 빠졌거나 임포트가 깨져도 쿼터 조회는 계속 동작해야 한다.
+try:
+    from claude_token_stats import TokenAggregator
+except Exception:
+    TokenAggregator = None
+
 
 # --- macOS SSL 인증서 문제 해결 ---
 os.environ['SSL_CERT_FILE'] = certifi.where()
@@ -55,6 +62,11 @@ os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 API_PORT = int(os.getenv("API_PORT", "8306"))
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "300"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# 로컬 로그 토큰 집계 (부가 기능). 상류 쿼터 조회와는 수명도 무효화 조건도 다르므로
+# _usage_cache 를 재사용하지 않고 별도 상태를 둔다.
+TOKENS_ENABLED = os.getenv("TOKENS_ENABLED", "1").strip().lower() not in ("0", "false", "no")
+TOKENS_SCAN_INTERVAL = int(os.getenv("TOKENS_SCAN_INTERVAL", "30"))
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # When launched by CCU Bar from a read-only .app bundle, the script directory
 # can't receive writes — so the launcher injects CCUBAR_BRIDGE_DATA pointing to
@@ -226,6 +238,54 @@ def clear_cache():
         _usage_cache["data"] = None
         _usage_cache["timestamp"] = None
         logger.debug("캐시 초기화 완료")
+
+
+# ============================================================
+# 로컬 토큰 집계기 (부가 기능)
+# ============================================================
+
+# 위 _usage_cache 와 의도적으로 분리된 상태다. 상류 캐시는 5분 TTL, 이쪽은 30초 스캔
+# 주기라 하나로 합치면 둘 중 하나가 반드시 손해를 본다. 락 관용구만 맞춰 둔다.
+_aggregator = TokenAggregator() if (TOKENS_ENABLED and TokenAggregator) else None
+
+
+def _tokens_block(args):
+    """
+    응답에 덧붙일 tokens 블록을 만든다. 비활성/오류면 None.
+
+    호출자는 이 함수의 예외를 삼켜야 한다 — 토큰 통계는 부가물이고, 상류 쿼터 응답이
+    이것 때문에 실패해선 안 된다.
+    """
+    if _aggregator is None:
+        return None
+
+    mode = (args.get("tokens") or "").strip().lower()
+    if mode == "off":
+        return None
+
+    _aggregator.maybe_scan(TOKENS_SCAN_INTERVAL)
+    return _aggregator.snapshot(
+        range_key=(args.get("range") or "today").strip().lower(),
+        since=args.get("since"),
+        until=args.get("until"),
+        tz_name=args.get("tz"),
+        full=(mode == "full"),
+    )
+
+
+def warmup_token_stats_on_startup():
+    """서버 시작 시 로그 트리 최초 전체 스캔. 실패해도 서버는 정상 시작."""
+    if _aggregator is None:
+        return
+    try:
+        _aggregator.scan()
+        stats = _aggregator.stats
+        logger.info(
+            f"토큰 집계 워밍업 완료 "
+            f"(파일 {stats['files_tracked']}개, {stats['scan_ms']}ms)"
+        )
+    except Exception as e:
+        logger.warning(f"토큰 집계 워밍업 실패: {e}")
 
 
 # ============================================================
@@ -548,6 +608,16 @@ def api_usage():
 
     try:
         usage = scrape_claude_usage()
+
+        # 로컬 로그 기반 토큰 통계를 덧붙인다. 순수 부가물이므로 무슨 일이 나든 삼켜서
+        # 상류 쿼터 응답은 그대로 내보낸다. dict 는 삽입 순서를 보존하므로 맨 아래에 붙는다.
+        try:
+            tokens = _tokens_block(request.args)
+            if tokens is not None:
+                usage["tokens"] = tokens
+        except Exception as token_error:
+            logger.warning(f"토큰 집계 실패 (쿼터 응답은 정상): {token_error}")
+
         logger.info("API 응답: 200 OK")
         return jsonify(usage), 200
 
@@ -617,7 +687,7 @@ if __name__ == '__main__':
         logger.info("⚠  브라우저(Safari/Chrome)에 로그인된 sessionKey 쿠키를 추출해")
         logger.info("⚠  claude.ai 내부 엔드포인트를 호출하는 리버스엔지니어링 기반 도구입니다.")
         logger.info("⚠  개인 사용 목적으로만 이용하세요.")
-        logger.info(f"REST API 서버 시작: http://0.0.0.0:{args.port}/api/usage")
+        logger.info(f"REST API 서버 시작: http://127.0.0.1:{args.port}/api/usage")
         logger.info(f"캐시 TTL: {CACHE_TTL_SECONDS}초")
         logger.info(f"로그 레벨: {LOG_LEVEL}")
         logger.info("============================================================")
@@ -625,8 +695,11 @@ if __name__ == '__main__':
         # Warmup off the main thread so Flask starts listening immediately,
         # even if cookie extraction blocks (Keychain prompts, etc.).
         threading.Thread(target=warmup_session_on_startup, daemon=True).start()
+        threading.Thread(target=warmup_token_stats_on_startup, daemon=True).start()
 
-        app.run(host="0.0.0.0", port=args.port, debug=False)
+        # 루프백 전용. 응답에 cwd(프로젝트 경로)와 작업 시간대가 실리므로 같은 네트워크의
+        # 다른 기기에 노출돼선 안 된다. 앱의 나머지도 전부 127.0.0.1 을 가정한다.
+        app.run(host="127.0.0.1", port=args.port, debug=False)
         sys.exit(0)
 
     try:

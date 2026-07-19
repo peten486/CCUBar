@@ -32,6 +32,71 @@ Each `*_percent` is 0–100 (not 0.0–1.0). `remaining_minutes` is an integer. 
 
 ---
 
+## Token statistics (`tokens` block)
+
+The same response also carries a `tokens` block with **absolute token counts read from your local Claude Code session logs** (`~/.claude/projects/**/*.jsonl`). No network call, no cookie — just files already on your disk.
+
+```json
+"tokens": {
+  "schema_version": 1,
+  "source": "local_logs",
+  "scope": "claude_code_this_machine",
+  "ready": true,
+  "scanned_at": "2026-07-19T02:31:20Z",
+  "timezone": "Asia/Seoul",
+  "utc_offset_minutes": 540,
+  "range": { "key": "today", "since": "...", "until": "..." },
+
+  "totals":  { "input_tokens": 128340, "output_tokens": 48211,
+               "cache_creation_input_tokens": 903112, "cache_read_input_tokens": 14882301,
+               "total_tokens": 15961964, "billable_tokens": 176551, "requests": 1204 },
+  "today":   { "…same fields…" },
+  "by_model":   [ { "model": "claude-opus-4-8", "…same fields…" } ],
+  "by_hour":    [ { "hour": "2026-07-19T09:00:00+09:00", "hour_of_day": 9, "…same fields…" } ],
+  "by_project": [ { "project": "CCUBar", "cwd": "/Users/you/CCUBar", "…same fields…" } ],
+
+  "stats": { "files_tracked": 206, "lines_parsed": 27353, "duplicates_skipped": 15080,
+             "malformed_lines": 0, "files_skipped": 2, "scan_ms": 7 },
+  "warnings": []
+}
+```
+
+### Query parameters
+
+| Parameter | Values | Default | Effect |
+|---|---|---|---|
+| `tokens` | `full` / `off` | *(compact)* | `full` adds `by_hour` + `by_project`; `off` omits the block entirely |
+| `range` | `today` / `7d` / `30d` | `today` | Window for `totals`, `by_model`, `by_hour`, `by_project` |
+| `since` / `until` | ISO-8601 | — | Explicit window; overrides `range` |
+| `tz` | IANA name (`Asia/Seoul`) | system zone | Day boundaries and hour labels |
+
+The default response is **compact** — `by_hour` can reach 720 rows over 30 days, which is far too much to ship on a 60-second poll. Ask for `?tokens=full` when you actually want to draw a chart.
+
+### `total_tokens` vs `billable_tokens`
+
+`billable_tokens` = input + output + cache_creation. Cache **reads** are excluded because they dwarf everything else — a typical 30-day window here shows 2.3 B cache-read tokens against 60 M of everything else. If you display one number, display `billable_tokens`, and label whichever you pick.
+
+### Why don't these numbers match the percentages above?
+
+They measure different things and there is **no conversion between them**:
+
+| | `five_hour` / `seven_day` / `seven_day_sonnet` | `tokens` |
+|---|---|---|
+| Source | claude.ai servers | log files on this Mac |
+| Covers | your whole account — web, desktop, every device | Claude Code on this machine only |
+| Unit | quota utilization % | absolute token counts |
+
+Usage from the web app, from another machine, or from a session whose log you deleted is invisible to `tokens` but still counted against your quota. Quota utilization is also not a linear function of token count. Don't derive one from the other.
+
+### Notes
+
+- Logs older than 30 days are ignored (`TOKENS_RETENTION_DAYS`).
+- Counts are deduplicated by `requestId`. A single API response is written to the log as several lines — one per content block — each repeating the identical `usage` object, so naive summation roughly doubles every total.
+- The aggregate is in-memory only. It is rebuilt on start (~1–2 s for 600 MB of logs) and updated incrementally afterwards; nothing is written to disk.
+- Set `TOKENS_ENABLED=0` to switch the whole feature off.
+
+---
+
 ## Requirements
 
 | | |
