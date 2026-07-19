@@ -247,6 +247,40 @@ One-shot usage (prints JSON and exits, no server):
 python3 claude_usage_scraper.py
 ```
 
+### Environment variables
+
+| Variable | Default | Effect |
+|---|---|---|
+| `API_PORT` | `8306` | Listening port |
+| `BRIDGE_HOST` | `0.0.0.0` | Bind address. Set to `127.0.0.1` to accept local connections only |
+| `CACHE_TTL_SECONDS` | `300` | How long an upstream quota response is reused |
+| `TOKENS_ENABLED` | `1` | `0` removes the `tokens` block entirely |
+| `TOKENS_SCAN_INTERVAL` | `30` | Minimum seconds between log rescans |
+| `TOKENS_RETENTION_DAYS` | `30` | Logs older than this are not read |
+| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Where to look for session logs |
+| `LOG_LEVEL` | `INFO` | Console log level |
+
+### Exposing it to other devices
+
+The default bind is `0.0.0.0`, so a phone, watchface, or home server on your network can poll it. **There is no authentication of any kind** — anyone who can reach the port reads the whole response, which includes:
+
+- your quota utilization
+- your project names and their **absolute filesystem paths** (`tokens.by_project[].cwd`)
+- **when you work**, hour by hour (`tokens.by_hour`)
+- token volumes and per-model breakdown
+
+Your `sessionKey` cookie is never included in a response, so this is activity metadata, not a credential leak. Still, think before forwarding the port through a router to the public internet.
+
+Three ways to narrow it, in increasing order of openness:
+
+```bash
+BRIDGE_HOST=127.0.0.1 ./run.sh   # this machine only
+TOKENS_ENABLED=0 ./run.sh        # reachable, but quota percentages only
+./run.sh                         # default — everything, to anyone who can reach the port
+```
+
+A private network overlay (Tailscale, WireGuard) is a better answer than a public port forward if your client device supports it. The server logs a warning at startup listing exactly what it is publishing whenever it binds outside loopback.
+
 ---
 
 ## How it works (for the curious)
