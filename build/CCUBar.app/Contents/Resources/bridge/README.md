@@ -28,7 +28,26 @@ GET /api/usage
 }
 ```
 
-Each `*_percent` is 0–100 (not 0.0–1.0). `remaining_minutes` is an integer. `resets_at` is an ISO-8601 UTC timestamp. When the cache is fresh (default 5 min TTL), the response is served without a network call and `cached` is `true`.
+### Field reference
+
+| Field | Type | Meaning |
+|---|---|---|
+| `five_hour` | object | The rolling 5-hour session window |
+| `seven_day` | object | The combined 7-day cap (Max plans) |
+| `seven_day_sonnet` | object | The Sonnet-specific 7-day cap |
+| `source` | string | `"api"` — where the numbers came from |
+| `cached` | bool | `true` if served from the in-process cache with no network call (default 5 min TTL) |
+| `timestamp` | string | When this data was fetched from claude.ai, ISO-8601 UTC |
+
+Each of the three period objects contains:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `utilization` | float | Percent of that quota consumed, **0–100** (not 0.0–1.0) |
+| `resets_at` | string | When the window rolls over, ISO-8601 UTC |
+| `remaining_minutes` | int | Minutes until `resets_at`. Computed locally, not returned by claude.ai |
+
+These are the only three keys CCU Bar itself reads. Everything below is additive.
 
 ---
 
@@ -60,6 +79,58 @@ The same response also carries a `tokens` block with **absolute token counts rea
   "warnings": []
 }
 ```
+
+### Token field reference
+
+**Metadata** — describes the aggregate itself, not your usage:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `schema_version` | int | Bumped on any breaking change to this block. Currently `1` |
+| `source` | string | Always `"local_logs"` — distinguishes it from the `"api"` numbers above |
+| `scope` | string | Always `"claude_code_this_machine"`. A machine-readable reminder that this is **not** account-wide |
+| `ready` | bool | `false` while the first full scan is still running. All counters read 0 until it flips |
+| `scanned_at` | string \| null | When the logs were last read, ISO-8601 UTC. `null` before the first scan |
+| `timezone` | string | The zone used for day boundaries and hour labels. An IANA name when you pass `tz`, otherwise whatever the system reports (which may be an abbreviation like `KST`) |
+| `utc_offset_minutes` | int | That zone's offset — `540` for KST. Use this rather than parsing `timezone` |
+| `range.key` | string | Which window was applied: `today`, `7d`, `30d`, or `custom` |
+| `range.since` / `range.until` | string | The window's actual bounds, ISO-8601 with local offset. Half-open: `since` inclusive, `until` exclusive |
+
+**Counters** — these seven fields appear identically in `totals`, `today`, and every row of `by_model` / `by_hour` / `by_project`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `input_tokens` | int | Prompt tokens sent fresh, i.e. **not** served from cache. Often surprisingly small on a cache-heavy workload |
+| `output_tokens` | int | Tokens the model generated, including thinking |
+| `cache_creation_input_tokens` | int | Tokens written **into** the prompt cache. Billed at a premium over normal input |
+| `cache_read_input_tokens` | int | Tokens read **from** the prompt cache. Heavily discounted, and usually 10–100× larger than everything else combined |
+| `total_tokens` | int | Sum of the four above. Dominated by cache reads, so rarely the number you want to show |
+| `billable_tokens` | int | `input + output + cache_creation` — cache reads excluded. See below |
+| `requests` | int | Distinct API responses, after deduplication |
+
+**Grouped arrays** — each row carries all seven counters plus its own key field:
+
+| Array | Key fields | Notes |
+|---|---|---|
+| `totals` | *(object, not array)* | Everything inside `range` |
+| `today` | *(object, not array)* | Local calendar day. **Ignores `range`** — it is always today, so a `range=30d` request still gives you a usable "today" figure |
+| `by_model` | `model` | Raw model id, e.g. `claude-opus-4-8`. New/unknown ids pass through verbatim. Sorted by `billable_tokens`, descending |
+| `by_hour` | `hour`, `hour_of_day` | `hour` is a local ISO-8601 timestamp; `hour_of_day` is `0`–`23`, denormalized so "usage by time of day" needs no date parsing. **Dense** — every hour in `range` is present, zero-filled |
+| `by_project` | `project`, `cwd` | `project` is the basename of the working directory, `cwd` the full path. Sorted by `billable_tokens`, descending |
+
+`by_hour` and `by_project` appear only with `?tokens=full`.
+
+**Diagnostics:**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `stats.files_tracked` | int | Log files currently being followed |
+| `stats.files_skipped` | int | Files not read — outside the retention window, or unreadable |
+| `stats.lines_parsed` | int | Usage-bearing lines seen, cumulative since process start |
+| `stats.duplicates_skipped` | int | Repeat lines dropped by dedup. Normally **larger than** `requests` — see the note below |
+| `stats.malformed_lines` | int | Lines skipped as unparseable. Should be 0 |
+| `stats.scan_ms` | int | Duration of the last scan. ~1–2 s on the first pass, single-digit ms after |
+| `warnings` | string[] | Human-readable problems — missing log directory, unreadable files. The block degrades into warnings rather than failing the request |
 
 ### Query parameters
 

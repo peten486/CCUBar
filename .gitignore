@@ -14,6 +14,8 @@ DerivedData/
 *.dSYM/
 # build/ is committed so users can grab the prebuilt CCUBar.app
 # without installing a Swift toolchain first.
+# The .dmg is not — it is a release-only artifact, rebuilt by Scripts/make_dmg.sh.
+build/*.dmg
 
 # Nothing to ignore under Resources/ — the Twemoji SVG and generated .icns are committed
 # so that `./Scripts/build_app.sh` works on a fresh clone without network access.
