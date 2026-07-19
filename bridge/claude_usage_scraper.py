@@ -60,6 +60,10 @@ os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 # ============================================================
 
 API_PORT = int(os.getenv("API_PORT", "8306"))
+# 바인드 주소. 기본값은 모든 인터페이스 — 다른 기기(휴대폰, 워치페이스, 홈서버)에서
+# 폴링하는 구성이 흔하기 때문이다. 이 머신에서만 쓸 거라면 BRIDGE_HOST=127.0.0.1 로
+# 잠글 것. 노출 시 무엇이 공개되는지는 아래 _warn_if_exposed() 와 README 참고.
+BRIDGE_HOST = os.getenv("BRIDGE_HOST", "0.0.0.0").strip() or "0.0.0.0"
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "300"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
@@ -271,6 +275,28 @@ def _tokens_block(args):
         tz_name=args.get("tz"),
         full=(mode == "full"),
     )
+
+
+def _warn_if_exposed():
+    """
+    루프백 밖으로 바인드할 때 무엇이 공개되는지 기동 로그에 남긴다.
+
+    이 서비스에는 인증이 전혀 없다. 포트에 닿을 수 있는 누구나 전체 응답을 읽는다.
+    """
+    if BRIDGE_HOST in ("127.0.0.1", "localhost", "::1"):
+        return
+
+    logger.warning(f"⚠  {BRIDGE_HOST} 에 바인드됨 — 이 머신 밖에서 접근 가능합니다.")
+    logger.warning("⚠  인증이 없으므로 포트에 닿는 누구나 아래를 읽을 수 있습니다:")
+    logger.warning("⚠   · 쿼터 소진률 (5시간 / 7일 / Sonnet 7일)")
+    if _aggregator is not None:
+        logger.warning("⚠   · 프로젝트 이름과 절대 경로 (tokens.by_project[].cwd)")
+        logger.warning("⚠   · 시간대별 활동 패턴 — 언제 작업하는지 (tokens.by_hour)")
+        logger.warning("⚠   · 토큰 사용량과 모델별 분해")
+        logger.warning("⚠  토큰 통계만 빼려면 TOKENS_ENABLED=0, 전부 잠그려면 BRIDGE_HOST=127.0.0.1")
+    else:
+        logger.warning("⚠  전부 잠그려면 BRIDGE_HOST=127.0.0.1")
+    logger.warning("⚠  sessionKey 쿠키 자체는 응답에 실리지 않습니다.")
 
 
 def warmup_token_stats_on_startup():
@@ -687,9 +713,10 @@ if __name__ == '__main__':
         logger.info("⚠  브라우저(Safari/Chrome)에 로그인된 sessionKey 쿠키를 추출해")
         logger.info("⚠  claude.ai 내부 엔드포인트를 호출하는 리버스엔지니어링 기반 도구입니다.")
         logger.info("⚠  개인 사용 목적으로만 이용하세요.")
-        logger.info(f"REST API 서버 시작: http://127.0.0.1:{args.port}/api/usage")
+        logger.info(f"REST API 서버 시작: http://{BRIDGE_HOST}:{args.port}/api/usage")
         logger.info(f"캐시 TTL: {CACHE_TTL_SECONDS}초")
         logger.info(f"로그 레벨: {LOG_LEVEL}")
+        _warn_if_exposed()
         logger.info("============================================================")
 
         # Warmup off the main thread so Flask starts listening immediately,
@@ -697,9 +724,7 @@ if __name__ == '__main__':
         threading.Thread(target=warmup_session_on_startup, daemon=True).start()
         threading.Thread(target=warmup_token_stats_on_startup, daemon=True).start()
 
-        # 루프백 전용. 응답에 cwd(프로젝트 경로)와 작업 시간대가 실리므로 같은 네트워크의
-        # 다른 기기에 노출돼선 안 된다. 앱의 나머지도 전부 127.0.0.1 을 가정한다.
-        app.run(host="127.0.0.1", port=args.port, debug=False)
+        app.run(host=BRIDGE_HOST, port=args.port, debug=False)
         sys.exit(0)
 
     try:
