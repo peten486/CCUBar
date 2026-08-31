@@ -18,28 +18,17 @@ if [ -f "$PID_FILE" ]; then
     rm -f "$PID_FILE"
 fi
 
-# Chrome Safe Storage 패스워드 추출 (Chrome 폴백용, Safari는 불필요)
-CHROME_SAFE_STORAGE_PASS=""
-CHROME_SAFE_STORAGE_PASS=$(security find-generic-password -s "Chrome Safe Storage" -a "Chrome" -w 2>/dev/null)
-if [ -n "$CHROME_SAFE_STORAGE_PASS" ]; then
-    echo "[OK] Chrome Safe Storage 패스워드 추출 성공 (Keychain)"
-    echo -n "$CHROME_SAFE_STORAGE_PASS" > .chrome_safe_storage_pass
-    chmod 600 .chrome_safe_storage_pass
-elif [ -f ".chrome_safe_storage_pass" ]; then
-    CHROME_SAFE_STORAGE_PASS=$(cat .chrome_safe_storage_pass)
-    echo "[OK] Chrome Safe Storage 패스워드 캐시 사용"
-else
-    echo "[INFO] Chrome Safe Storage 패스워드 없음 (Safari만으로 동작 가능)"
-fi
-
-export CHROME_SAFE_STORAGE_PASS
+# Chrome Safe Storage 패스워드는 여기서 미리 뽑지 않는다. browser_cookie3 가 필요 시점에
+# /usr/bin/security 를 직접 호출해 Keychain 에서 조회하므로, 스크립트가 환경변수나 캐시
+# 파일로 전달할 필요가 없다. (첫 접근 시 Keychain '항상 허용'을 물으며, 그 권한은
+# /usr/bin/security 에 귀속돼 이후 재사용된다. 대화상자를 놓쳤다면 refresh_keychain.sh 참고.)
 
 # Flask 서버를 백그라운드에서 감시하며 자동 재시작
 RESTART_DELAY=3
 
 (
     while true; do
-        env CHROME_SAFE_STORAGE_PASS="$CHROME_SAFE_STORAGE_PASS" python3 claude_usage_scraper.py --server >> app.log 2>&1
+        python3 claude_usage_scraper.py --server >> app.log 2>&1
         EXIT_CODE=$?
         # PID 파일이 삭제되었으면 stop.sh에 의한 정상 종료로 판단
         if [ ! -f "$PID_FILE" ]; then

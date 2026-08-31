@@ -1,12 +1,15 @@
 #!/bin/bash
-# 키체인에서 Chrome Safe Storage 패스워드를 새로 추출하는 스크립트
+# Chrome 쿠키 복호화용 Keychain 접근을 미리 허용해 두는 스크립트.
 # Terminal.app 또는 iTerm 등 GUI 터미널에서 직접 실행해야 합니다.
 #
+# 패스워드를 파일로 캐시하지 않습니다. browser_cookie3 는 필요 시점에 /usr/bin/security 를
+# 직접 호출하는데, 여기서 같은 바이너리로 한 번 조회하며 Keychain '항상 허용'을 선택해 두면
+# 그 ACL 이 /usr/bin/security 에 귀속돼 이후 브리지가 프롬프트 없이 쿠키를 복호화합니다.
+#
 # Safari는 Keychain 패스워드가 필요 없으며, 전체 디스크 접근 권한만 필요합니다.
-# 이 스크립트는 Chrome 폴백용 패스워드만 갱신합니다.
 cd "$(dirname "$0")"
 
-echo "=== 키체인 패스워드 갱신 (Chrome) ==="
+echo "=== 키체인 접근 허용 (Chrome) ==="
 echo ""
 
 # 키체인 잠금 해제
@@ -20,14 +23,12 @@ fi
 
 echo ""
 
-# Chrome Safe Storage
+# Chrome Safe Storage — 조회에 성공하면 ACL 이 설정된 것. 값은 저장하지 않는다.
 CHROME_PASS=$(security find-generic-password -s "Chrome Safe Storage" -a "Chrome" -w 2>/dev/null)
 if [ -n "$CHROME_PASS" ]; then
-    echo "[OK] Chrome Safe Storage: ${CHROME_PASS:0:4}*** (${#CHROME_PASS}자)"
-    echo -n "$CHROME_PASS" > .chrome_safe_storage_pass
-    chmod 600 .chrome_safe_storage_pass
+    echo "[OK] Chrome Safe Storage 접근 확인 (${#CHROME_PASS}자) — 대화상자에서 '항상 허용'을 선택했다면 완료"
 else
-    echo "[ERROR] Chrome Safe Storage 패스워드 추출 실패"
+    echo "[ERROR] Chrome Safe Storage 접근 실패"
     echo "  - 키체인 접근 '항상 허용'을 선택했는지 확인하세요"
     exit 1
 fi

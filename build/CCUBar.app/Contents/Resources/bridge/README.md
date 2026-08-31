@@ -33,13 +33,20 @@ GET /api/usage
 | Field | Type | Meaning |
 |---|---|---|
 | `five_hour` | object | The rolling 5-hour session window |
-| `seven_day` | object | The combined 7-day cap (Max plans) |
-| `seven_day_sonnet` | object | The Sonnet-specific 7-day cap |
+| `seven_day` | object — **may be absent** | The combined 7-day cap (Max plans) |
+| `seven_day_sonnet` | object — **may be absent** | The Sonnet-specific 7-day cap |
 | `source` | string | `"api"` — where the numbers came from |
 | `cached` | bool | `true` if served from the in-process cache with no network call (default 5 min TTL) |
 | `timestamp` | string | When this data was fetched from claude.ai, ISO-8601 UTC |
 
-Each of the three period objects contains:
+A period key is **omitted entirely** when your plan has no such quota — claude.ai returns
+`null` for it, and the bridge passes that through as absence rather than inventing a
+`utilization` of `0.0`. Read a missing key as *"not applicable"*, never as *"0% used"*.
+Only `five_hour` is required; if it is missing the upstream schema has changed, and the
+bridge logs a warning. Consumers should hide the corresponding gauge for absent keys —
+that is what CCU Bar's popover does.
+
+Each period object that *is* present contains:
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -210,7 +217,12 @@ cp token.ini.example token.ini
 
 **If you use Safari:** System Settings → Privacy & Security → **Full Disk Access** → add your terminal app (Terminal / iTerm / Warp / etc.).
 
-**If you use Chrome (or a Chromium derivative):** The first run will raise a Keychain dialog asking to unlock *"Chrome Safe Storage"*. Click **Always Allow** so the background watchdog can re-extract the password without prompting again. You can also pre-cache it with:
+macOS attributes that grant to the app that *launched* the bridge, not to the `python3`
+binary. Running the bridge yourself from a shell means the terminal needs the grant;
+running it under CCU Bar means **`CCUBar.app`** does, and granting it to your terminal
+has no effect there. The log line printed on a permission failure names the right target.
+
+**If you use Chrome (or a Chromium derivative):** The first run will raise a Keychain dialog asking to unlock *"Chrome Safe Storage"*. Click **Always Allow** — the grant is attached to `/usr/bin/security`, which `browser_cookie3` invokes on every refresh, so it won't prompt again. If you miss the dialog, trigger it up front with:
 
 ```bash
 ./refresh_keychain.sh
@@ -223,7 +235,7 @@ cp token.ini.example token.ini
 ```bash
 ./run.sh                 # start in the background with auto-restart
 ./stop.sh                # graceful shutdown
-./refresh_keychain.sh    # re-cache Chrome Safe Storage password
+./refresh_keychain.sh    # pre-grant Keychain access for Chrome cookie decryption
 ```
 
 `run.sh` starts a watchdog that restarts the server within 3 seconds if it crashes. Logs are written to `app.log` (rotating, 10 MB × 3 files).
@@ -251,9 +263,13 @@ python3 claude_usage_scraper.py
 
 | Variable | Default | Effect |
 |---|---|---|
+| `CCUBAR_USAGE_SOURCE` | `snapshot` | Data source. `snapshot` reads the statusline snapshot file (no auth, no network). `browser_cookie` is the legacy path that extracts the `sessionKey` cookie and calls claude.ai directly |
+| `CCUBAR_USAGE_SNAPSHOT` | `~/.claude/usage-snapshot.json` | Path to the snapshot written by `statusline-custom.sh` (snapshot source only) |
+| `STALE_THRESHOLD_SECONDS` | `1800` | A snapshot older than this is served with `"stale": true` (snapshot source only) |
 | `API_PORT` | `8306` | Listening port |
 | `BRIDGE_HOST` | `0.0.0.0` | Bind address. Set to `127.0.0.1` to accept local connections only |
 | `CACHE_TTL_SECONDS` | `300` | How long an upstream quota response is reused |
+| `FAILURE_COOLDOWN_SECONDS` | `60` | After a failed lookup, how long before cookies are read again. Requests inside the window fail fast from the cached reason instead of re-reading Safari/Chrome every poll |
 | `TOKENS_ENABLED` | `1` | `0` removes the `tokens` block entirely |
 | `TOKENS_SCAN_INTERVAL` | `30` | Minimum seconds between log rescans |
 | `TOKENS_RETENTION_DAYS` | `30` | Logs older than this are not read |
@@ -283,7 +299,77 @@ A private network overlay (Tailscale, WireGuard) is a better answer than a publi
 
 ---
 
-## How it works (for the curious)
+## Data source (`snapshot`, default)
+
+Since v0.3 the bridge reads usage from a **local snapshot file** instead of the browser
+cookie, so it never authenticates to claude.ai and never triggers a session-invalidation
+logout from repeated polling.
+
+Claude Code passes account-level rate-limit data (`rate_limits.five_hour` /
+`rate_limits.seven_day`, each with `used_percentage` and `resets_at`) to its status line
+script on stdin — the same numbers `/status` shows. A thin collector wrapper captures those
+into a snapshot the bridge reads.
+
+**Setup on the machine that runs Claude Code (the Mac mini):**
+
+1. Point `settings.json`'s `statusLine.command` at the wrapper (it runs your existing
+   statusline unchanged and writes the snapshot as a side effect):
+
+   ```bash
+   cp bridge/statusline-custom.sh ~/.claude/statusline-custom.sh
+   chmod +x ~/.claude/statusline-custom.sh
+   # then set "statusLine": { "command": "~/.claude/statusline-custom.sh" } in ~/.claude/settings.json
+   ```
+
+   The wrapper calls `~/.claude/statusline.sh` for the visible output; override with
+   `CCUBAR_STATUSLINE_ORIGINAL` if your original lives elsewhere.
+
+2. Use Claude Code once. The snapshot appears at `~/.claude/usage-snapshot.json`.
+   (`rate_limits` only exists for Pro/Max and only after the session's first API response,
+   so a brand-new session shows nothing until you send a turn.)
+
+Machines that only *display* usage (phone, watch, home server) need no collector — they
+just poll the bridge's REST endpoint. `seven_day_sonnet` is **not** available from the
+statusline and is therefore omitted from the response in this mode; consumers already hide
+that gauge when it is absent. When a snapshot is missing or older than
+`STALE_THRESHOLD_SECONDS`, the response carries `"stale": true` with the last known values.
+
+To A/B test the logout hypothesis, set `CCUBAR_USAGE_SOURCE=browser_cookie` to restore the
+legacy path below.
+
+### Windows
+
+The snapshot source is cross-platform — the bridge resolves `~/.claude` to
+`%USERPROFILE%\.claude` on its own, so no code path is macOS-only. Only the collector
+differs, because it is a shell script; a PowerShell twin ships alongside it.
+
+1. Point `statusLine.command` in `%USERPROFILE%\.claude\settings.json` at the PowerShell
+   wrapper (it runs your existing statusline unchanged and writes the snapshot):
+
+   ```powershell
+   Copy-Item bridge\statusline-custom.ps1 $env:USERPROFILE\.claude\statusline-custom.ps1
+   # then set:
+   #   "statusLine": { "type": "command",
+   #     "command": "powershell -NoProfile -ExecutionPolicy Bypass -File %USERPROFILE%\\.claude\\statusline-custom.ps1" }
+   ```
+
+   The wrapper looks for `statusline.ps1` then `statusline.sh` as the original to pass
+   through; override with `CCUBAR_STATUSLINE_ORIGINAL`.
+
+2. Run the bridge:
+
+   ```powershell
+   cd bridge
+   pip install -r requirements.txt
+   .\run.ps1        # start (snapshot source by default); .\stop.ps1 to stop
+   ```
+
+There is no menu-bar app on Windows (CCU Bar is macOS-only) — a Windows box runs the bridge
+and collector so its usage feeds the same REST endpoint your other clients poll.
+
+## How it works — legacy `browser_cookie` path (for the curious)
+
+Only used when `CCUBAR_USAGE_SOURCE=browser_cookie`.
 
 1. On startup, `plutil` is used to read the default-browser handler for `https://` URLs and map that bundle ID to `safari` or `chrome`.
 2. [`browser-cookie3`](https://github.com/borisbabic/browser_cookie3) is used to open the appropriate cookie jar:
@@ -293,7 +379,7 @@ A private network overlay (Tailscale, WireGuard) is a better answer than a publi
 4. `GET https://claude.ai/api/organizations/<org_id>/usage` → normalise into the `five_hour / seven_day / seven_day_sonnet` shape above.
 5. The response is cached in-memory (default 5 min TTL) behind a thread-safe lock and served from `/api/usage`.
 
-Nothing is ever written to disk other than the rotating log file and the cached Chrome keychain password in `.chrome_safe_storage_pass` (chmod `600`, never committed).
+Nothing is ever written to disk other than the rotating log file and `token.ini` (which holds only your organization UUID). The `sessionKey` cookie and the Chrome Safe Storage password are read on demand and kept in memory only — never cached to a file.
 
 ---
 
@@ -302,8 +388,8 @@ Nothing is ever written to disk other than the rotating log file and the cached 
 | Symptom | Fix |
 |---|---|
 | `sessionKey를 찾을 수 없음` | Sign into `claude.ai` in Safari or Chrome, then restart the bridge. |
-| Safari extraction silently fails | Grant Full Disk Access to your terminal. |
-| Chrome Keychain prompt appears on every request | Click **Always Allow** once, then run `./refresh_keychain.sh`. |
+| Safari extraction silently fails | Grant Full Disk Access to whichever app launched the bridge — your terminal if you ran it by hand, `CCUBar.app` if the menu-bar app spawned it. |
+| Chrome Keychain prompt appears on every request | Run `./refresh_keychain.sh` and click **Always Allow** so `/usr/bin/security` keeps the grant. |
 | HTTP 401 / 403 from `claude.ai` | The cookie likely expired (~30 days) — sign in again. |
 | Cloudflare HTML instead of JSON | `curl_cffi`'s `impersonate=` may need bumping as Chrome versions change; open an issue with the HTML snippet. |
 | `org_id` wrong / missing | See [Getting your organization UUID](#getting-your-organization-uuid). |

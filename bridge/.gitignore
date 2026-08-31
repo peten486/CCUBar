@@ -9,7 +9,6 @@ venv/
 
 # --- Runtime artifacts (per-machine, never commit) ---
 .app.pid
-.chrome_safe_storage_pass
 app.log
 app.log.*
 token.ini
