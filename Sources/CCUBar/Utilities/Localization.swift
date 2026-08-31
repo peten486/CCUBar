@@ -35,6 +35,11 @@ struct LocalizedStrings {
         pick("Sonnet 7-day", "Sonnet 7日", "Sonnet 7일")
     }
 
+    /// "Current week (Fable)" 류 — model is a display name from the bridge.
+    func modelWeeklyTitle(_ model: String) -> String {
+        pick("Current week (\(model))", "今週 (\(model))", "이번 주 (\(model))")
+    }
+
     var autoRefreshAction: String {
         pick("Refresh", "更新", "자동 새로고침")
     }

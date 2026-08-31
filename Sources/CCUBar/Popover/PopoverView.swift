@@ -95,7 +95,8 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var secondaryMetrics: some View {
-        if currentSnapshot?.weekly != nil || currentSnapshot?.sonnetWeekly != nil {
+        if currentSnapshot?.weekly != nil || currentSnapshot?.sonnetWeekly != nil
+            || !(currentSnapshot?.modelWeekly.isEmpty ?? true) {
             VStack(alignment: .leading, spacing: 10) {
                 Divider().overlay(Color.white.opacity(0.12))
 
@@ -103,6 +104,15 @@ struct PopoverView: View {
                     MetricRow(
                         title: strings.weeklyQuotaTitle,
                         metric: weekly,
+                        tick: tick,
+                        strings: strings
+                    )
+                }
+
+                ForEach(currentSnapshot?.modelWeekly ?? [], id: \.name) { entry in
+                    MetricRow(
+                        title: strings.modelWeeklyTitle(entry.name),
+                        metric: entry.metric,
                         tick: tick,
                         strings: strings
                     )

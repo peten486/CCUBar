@@ -41,6 +41,42 @@ final class HttpUsageFetcherTests: XCTestCase {
         XCTAssertFalse(snap.rawOutput.isEmpty)
     }
 
+    func testParsesModelScopedWeekly() throws {
+        let json = """
+        {
+            "five_hour": { "utilization": 7.0, "remaining_minutes": 228 },
+            "seven_day": { "utilization": 18.0, "remaining_minutes": 2468 },
+            "seven_day_fable": {
+                "utilization": 31.0,
+                "remaining_minutes": 2468,
+                "resets_at": "2026-09-02T07:00:00.493888+00:00",
+                "model": "Fable"
+            }
+        }
+        """.data(using: .utf8)!
+
+        let snap = try HttpUsageFetcher.parseResponse(data: json, now: Date())
+        XCTAssertEqual(snap.modelWeekly.count, 1)
+        XCTAssertEqual(snap.modelWeekly[0].name, "Fable")
+        XCTAssertEqual(snap.modelWeekly[0].metric.percent, 31.0, accuracy: 0.001)
+        XCTAssertEqual(snap.modelWeekly[0].metric.remainingMinutes, 2468)
+        XCTAssertNotNil(snap.modelWeekly[0].metric.resetAt)
+    }
+
+    func testSonnetWithoutModelFieldNotDuplicatedIntoModelWeekly() throws {
+        // seven_day_sonnet has no "model" field — it must stay in its dedicated slot only.
+        let json = """
+        {
+            "five_hour": { "utilization": 7.0 },
+            "seven_day_sonnet": { "utilization": 8.0 }
+        }
+        """.data(using: .utf8)!
+
+        let snap = try HttpUsageFetcher.parseResponse(data: json, now: Date())
+        XCTAssertNotNil(snap.sonnetWeekly)
+        XCTAssertTrue(snap.modelWeekly.isEmpty)
+    }
+
     func testMissingFiveHourThrows() {
         let json = #"{"seven_day": {"utilization": 50}}"#.data(using: .utf8)!
         XCTAssertThrowsError(try HttpUsageFetcher.parseResponse(data: json, now: Date()))
