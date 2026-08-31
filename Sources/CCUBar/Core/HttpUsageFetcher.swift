@@ -56,6 +56,19 @@ struct HttpUsageFetcher: UsageFetching {
         let weekly = parseMetric(root["seven_day"])
         let sonnetWeekly = parseMetric(root["seven_day_sonnet"])
 
+        // Model-scoped weekly quotas (seven_day_fable, ...). Recognised by the `model`
+        // display-name field rather than a hardcoded key list, so new models appear
+        // without an app update. `seven_day`/`seven_day_sonnet` carry no `model` field.
+        let modelWeekly: [ModelWeeklyMetric] = root
+            .compactMap { key, value -> ModelWeeklyMetric? in
+                guard key.hasPrefix("seven_day_"),
+                      let block = value as? [String: Any],
+                      let name = block["model"] as? String, !name.isEmpty,
+                      let metric = parseMetric(block) else { return nil }
+                return ModelWeeklyMetric(name: name, metric: metric)
+            }
+            .sorted { $0.name < $1.name }
+
         let pretty = (try? JSONSerialization.data(
             withJSONObject: root,
             options: [.prettyPrinted, .sortedKeys]
@@ -65,6 +78,7 @@ struct HttpUsageFetcher: UsageFetching {
             session: session,
             weekly: weekly,
             sonnetWeekly: sonnetWeekly,
+            modelWeekly: modelWeekly,
             fetchedAt: now,
             rawOutput: pretty
         )
