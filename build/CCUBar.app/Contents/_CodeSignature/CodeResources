@@ -14,7 +14,7 @@
 		</data>
 		<key>Resources/bridge/README.md</key>
 		<data>
-		9L7+2+Ex4GxOoFXkyqotisGzv5M=
+		yMCrJc1enAF7ln0oc2R76pGtst4=
 		</data>
 		<key>Resources/bridge/claude_token_stats.py</key>
 		<data>
@@ -22,19 +22,35 @@
 		</data>
 		<key>Resources/bridge/claude_usage_scraper.py</key>
 		<data>
-		nnMIEBBrqzI1jc0i1LMIUlD5nFg=
+		F2Wel/trQ5KgV0YUgODLNPoTceQ=
 		</data>
 		<key>Resources/bridge/refresh_keychain.sh</key>
 		<data>
-		G22ue5O3Q86NZ6N2t5ZFAwVptqY=
+		y2rJr4AACXtv2z5m5++4NFvCDeo=
 		</data>
 		<key>Resources/bridge/requirements.txt</key>
 		<data>
 		8B/Dl/OdiluJWvfWa3hELy2Es+Y=
 		</data>
+		<key>Resources/bridge/run.ps1</key>
+		<data>
+		sScaOzwFRr1P2m6OL6Lmi7ZW3Ac=
+		</data>
 		<key>Resources/bridge/run.sh</key>
 		<data>
-		FVapTF9JdZqmgrKL7+hoU62VymY=
+		3rtu5gs0Wr0OyRPp29WxNnPyEgc=
+		</data>
+		<key>Resources/bridge/statusline-custom.ps1</key>
+		<data>
+		jtFW3s+kfOyqOeYkm8uD9cTBW1c=
+		</data>
+		<key>Resources/bridge/statusline-custom.sh</key>
+		<data>
+		k7aeN9ZJgfbFHCJ2GPvkmZJu7no=
+		</data>
+		<key>Resources/bridge/stop.ps1</key>
+		<data>
+		fxxo0gej5V2v5A3jJGblgU1C+6I=
 		</data>
 		<key>Resources/bridge/stop.sh</key>
 		<data>
@@ -65,7 +81,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			Lu5lIH0ow/IxxICIriZ1ke9PyjS0NcYnXMbuApE8iso=
+			4lEBwSA3INNHWymhglBQXRTZOsmSZEYzc3bGVhogd64=
 			</data>
 		</dict>
 		<key>Resources/bridge/claude_token_stats.py</key>
@@ -79,14 +95,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			jHgW+Q9D6cxuLvnsue5ukdXBNGb57RAQdA21MQD17+g=
+			9fh9tlQMSBiQpB9oa0KBMAm060TeEeGQf1Aka0VRYV0=
 			</data>
 		</dict>
 		<key>Resources/bridge/refresh_keychain.sh</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			+ZFWn4xzJ3PabNdrhJZf7hZg6WnrgJy6F0oFH/Xm9CY=
+			23QygrjpvYeFmKUKeaOhQ+NWqKO346UO58PWKJiar2Q=
 			</data>
 		</dict>
 		<key>Resources/bridge/requirements.txt</key>
@@ -96,11 +112,39 @@
 			7DuMsZc+bh9MDR5Ig3RWmO4wzQ5V/YvLpoB42/t0c9A=
 			</data>
 		</dict>
+		<key>Resources/bridge/run.ps1</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			EVaqa57cweg0Or81lS6+yFuCUGQFiDMgezGfVKrb2iI=
+			</data>
+		</dict>
 		<key>Resources/bridge/run.sh</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			S546Gdq7Iy51nbPH++S7yWJkVwaEDlMkt6+CBxrBq4s=
+			XnNxh26kRh6hYP+1pSC9LqQsWScX4ajPTIrutuwMbwo=
+			</data>
+		</dict>
+		<key>Resources/bridge/statusline-custom.ps1</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			temWg2C1rI3HgI+2q5upeZhot1VVIHQk8UVcMV28QPU=
+			</data>
+		</dict>
+		<key>Resources/bridge/statusline-custom.sh</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			b64G1UoWWBXsYKuOgTyg/XPOKSwwTd8BnYPsUwqO1C4=
+			</data>
+		</dict>
+		<key>Resources/bridge/stop.ps1</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			6UwRtCrlU3ud0eCdcHcYGYqwCIwgRRqmK/UUVpqWAaA=
 			</data>
 		</dict>
 		<key>Resources/bridge/stop.sh</key>
