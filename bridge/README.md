@@ -337,6 +337,36 @@ that gauge when it is absent. When a snapshot is missing or older than
 To A/B test the logout hypothesis, set `CCUBAR_USAGE_SOURCE=browser_cookie` to restore the
 legacy path below.
 
+### Windows
+
+The snapshot source is cross-platform — the bridge resolves `~/.claude` to
+`%USERPROFILE%\.claude` on its own, so no code path is macOS-only. Only the collector
+differs, because it is a shell script; a PowerShell twin ships alongside it.
+
+1. Point `statusLine.command` in `%USERPROFILE%\.claude\settings.json` at the PowerShell
+   wrapper (it runs your existing statusline unchanged and writes the snapshot):
+
+   ```powershell
+   Copy-Item bridge\statusline-custom.ps1 $env:USERPROFILE\.claude\statusline-custom.ps1
+   # then set:
+   #   "statusLine": { "type": "command",
+   #     "command": "powershell -NoProfile -ExecutionPolicy Bypass -File %USERPROFILE%\\.claude\\statusline-custom.ps1" }
+   ```
+
+   The wrapper looks for `statusline.ps1` then `statusline.sh` as the original to pass
+   through; override with `CCUBAR_STATUSLINE_ORIGINAL`.
+
+2. Run the bridge:
+
+   ```powershell
+   cd bridge
+   pip install -r requirements.txt
+   .\run.ps1        # start (snapshot source by default); .\stop.ps1 to stop
+   ```
+
+There is no menu-bar app on Windows (CCU Bar is macOS-only) — a Windows box runs the bridge
+and collector so its usage feeds the same REST endpoint your other clients poll.
+
 ## How it works — legacy `browser_cookie` path (for the curious)
 
 Only used when `CCUBAR_USAGE_SOURCE=browser_cookie`.

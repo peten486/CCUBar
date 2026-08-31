@@ -37,7 +37,8 @@ if [[ -d "$ROOT_DIR/bridge" ]]; then
     rm -rf "$APP/Contents/Resources/bridge"
     mkdir -p "$APP/Contents/Resources/bridge"
     for f in claude_usage_scraper.py claude_token_stats.py requirements.txt run.sh stop.sh \
-             statusline-custom.sh refresh_keychain.sh token.ini.example README.md LICENSE; do
+             statusline-custom.sh statusline-custom.ps1 run.ps1 stop.ps1 \
+             refresh_keychain.sh token.ini.example README.md LICENSE; do
         if [[ -f "$ROOT_DIR/bridge/$f" ]]; then
             cp "$ROOT_DIR/bridge/$f" "$APP/Contents/Resources/bridge/$f"
         fi
