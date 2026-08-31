@@ -185,7 +185,7 @@ CCU Bar itself does not phone home, but the bundled bridge needs to read the `se
 
 | Permission | When it appears | What to do |
 |---|---|---|
-| **Keychain → *Chrome Safe Storage*** | First time the bridge tries to decrypt Chrome cookies | Click **Always Allow** so the app can re-decrypt the cookie at every refresh without prompting again. If you miss the dialog, run `./bridge/refresh_keychain.sh` from a terminal to re-cache. |
+| **Keychain → *Chrome Safe Storage*** | First time the bridge tries to decrypt Chrome cookies | Click **Always Allow** so the app can re-decrypt the cookie at every refresh without prompting again. If you miss the dialog, run `./bridge/refresh_keychain.sh` from a terminal to grant it. |
 | **Login Items** | When you toggle *Launch at login* in Settings | macOS may open *System Settings → General → Login Items* and list **CCU Bar**. Keep the switch **on**. |
 
 ### Not required
