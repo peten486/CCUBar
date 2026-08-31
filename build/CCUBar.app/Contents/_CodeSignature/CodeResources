@@ -14,7 +14,7 @@
 		</data>
 		<key>Resources/bridge/README.md</key>
 		<data>
-		yMCrJc1enAF7ln0oc2R76pGtst4=
+		zmFGn66vh5tedfXeycWs10Vu0qc=
 		</data>
 		<key>Resources/bridge/claude_token_stats.py</key>
 		<data>
@@ -32,25 +32,13 @@
 		<data>
 		8B/Dl/OdiluJWvfWa3hELy2Es+Y=
 		</data>
-		<key>Resources/bridge/run.ps1</key>
-		<data>
-		sScaOzwFRr1P2m6OL6Lmi7ZW3Ac=
-		</data>
 		<key>Resources/bridge/run.sh</key>
 		<data>
 		3rtu5gs0Wr0OyRPp29WxNnPyEgc=
 		</data>
-		<key>Resources/bridge/statusline-custom.ps1</key>
-		<data>
-		jtFW3s+kfOyqOeYkm8uD9cTBW1c=
-		</data>
 		<key>Resources/bridge/statusline-custom.sh</key>
 		<data>
 		k7aeN9ZJgfbFHCJ2GPvkmZJu7no=
-		</data>
-		<key>Resources/bridge/stop.ps1</key>
-		<data>
-		fxxo0gej5V2v5A3jJGblgU1C+6I=
 		</data>
 		<key>Resources/bridge/stop.sh</key>
 		<data>
@@ -81,7 +69,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			4lEBwSA3INNHWymhglBQXRTZOsmSZEYzc3bGVhogd64=
+			8y2z0B6cXosRR67LpmKrVdtOxn9A5r3K0FuPn1aWHIA=
 			</data>
 		</dict>
 		<key>Resources/bridge/claude_token_stats.py</key>
@@ -112,13 +100,6 @@
 			7DuMsZc+bh9MDR5Ig3RWmO4wzQ5V/YvLpoB42/t0c9A=
 			</data>
 		</dict>
-		<key>Resources/bridge/run.ps1</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			EVaqa57cweg0Or81lS6+yFuCUGQFiDMgezGfVKrb2iI=
-			</data>
-		</dict>
 		<key>Resources/bridge/run.sh</key>
 		<dict>
 			<key>hash2</key>
@@ -126,25 +107,11 @@
 			XnNxh26kRh6hYP+1pSC9LqQsWScX4ajPTIrutuwMbwo=
 			</data>
 		</dict>
-		<key>Resources/bridge/statusline-custom.ps1</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			temWg2C1rI3HgI+2q5upeZhot1VVIHQk8UVcMV28QPU=
-			</data>
-		</dict>
 		<key>Resources/bridge/statusline-custom.sh</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			b64G1UoWWBXsYKuOgTyg/XPOKSwwTd8BnYPsUwqO1C4=
-			</data>
-		</dict>
-		<key>Resources/bridge/stop.ps1</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			6UwRtCrlU3ud0eCdcHcYGYqwCIwgRRqmK/UUVpqWAaA=
 			</data>
 		</dict>
 		<key>Resources/bridge/stop.sh</key>
