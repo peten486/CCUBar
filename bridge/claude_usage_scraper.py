@@ -21,6 +21,18 @@ Flask REST API 서버 모드(--server)로 실행하면 /api/usage 엔드포인�
       Chrome: browser_cookie3 가 /usr/bin/security 로 Keychain Safe Storage 패스워드를
       조회해 AES 복호화. token.ini 에는 org_id 만 저장.
 
+부가 데이터 (소스 선택과 무관):
+
+  주간 모델 스코프 (seven_day_fable 등)
+    - statusline stdin 에는 없는 "Current week (Fable)" 류 한도를 Claude Code 자신의
+      OAuth 토큰(~/.claude/.credentials.json 또는 Keychain)으로 /api/oauth/usage 에서
+      가져와 /api/usage 응답에 병합한다. 토큰 갱신은 절대 하지 않는다 (fail-soft).
+      CCUBAR_OAUTH_USAGE=0 으로 끌 수 있다.
+
+  /api/stats
+    - Claude Code /status 화면과 같은 원천(~/.claude/stats-cache.json)의 일별 활동·
+      모델별 토큰 통계를 그래프용으로 내려준다. 로컬 파일 읽기라 인증 불필요.
+
 공통: 표준화된 REST 에러 응답, 파일/콘솔 로깅(TimedRotatingFileHandler).
 """
 
@@ -29,14 +41,18 @@ from flask import Flask, jsonify, request
 
 # --- 표준 라이브러리 ---
 import os
+import re
 import json
 import sys
 import time
+import subprocess
 import configparser
 import certifi
 import logging
 import threading
 import signal
+import urllib.request
+import urllib.error
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime, timezone
 
@@ -116,6 +132,47 @@ STALE_THRESHOLD_SECONDS = int(os.getenv("STALE_THRESHOLD_SECONDS", "1800"))
 SNAPSHOT_SCHEMA_VERSION = 1
 # 스냅샷에서 나오는 구간. statusline 은 seven_day_sonnet 을 제공하지 않으므로 제외한다.
 SNAPSHOT_PERIODS = ["five_hour", "seven_day"]
+
+# ============================================================
+# OAuth 주간 모델 스코프 소스 설정 (부가 기능)
+# ============================================================
+
+# statusline stdin 에는 five_hour/seven_day 만 실리고 모델 스코프 주간 한도
+# ("Current week (Fable)" 등)는 구조적으로 없다 (Claude Code 2.1.251 바이너리 확인).
+# 그 데이터의 유일한 로컬 출처는 Claude Code 자신의 OAuth 토큰으로 호출하는
+# /api/oauth/usage 다. 브라우저 sessionKey 쿠키와는 완전히 별개의 인증이므로
+# 로그아웃 가설 검증(browser_cookie 폴링 제거)에 영향을 주지 않는다.
+#
+# 안전 규칙:
+#   - 토큰 갱신(refresh)은 절대 하지 않는다 — 갱신은 Claude Code 의 몫이고,
+#     여기서 refreshToken 을 소모하면 Claude Code 세션을 깨뜨릴 수 있다.
+#   - 만료됐거나 읽을 수 없으면 그냥 생략한다 (fail-soft). 응답의 다른 필드는 불변.
+OAUTH_USAGE_ENABLED = os.getenv("CCUBAR_OAUTH_USAGE", "1").strip().lower() not in ("0", "false", "no")
+OAUTH_CREDENTIALS_FILE = (
+    os.environ.get("CCUBAR_OAUTH_CREDENTIALS", "").strip()
+    or os.path.expanduser("~/.claude/.credentials.json")
+)
+OAUTH_KEYCHAIN_SERVICE = "Claude Code-credentials"
+OAUTH_USAGE_URL = (
+    os.environ.get("CCUBAR_OAUTH_USAGE_URL", "").strip()
+    or "https://api.anthropic.com/api/oauth/usage"
+)
+# 상류 재조회 간격. 주간 한도는 천천히 움직이므로 클라이언트 폴링(수 초)마다
+# 부를 이유가 없다. 실패해도 이 간격이 지나야 재시도한다.
+OAUTH_FETCH_INTERVAL = int(os.getenv("OAUTH_FETCH_INTERVAL", "600"))
+
+# ============================================================
+# 로컬 통계(stats-cache.json) 소스 설정
+# ============================================================
+
+# Claude Code /status 화면의 그래프가 쓰는 캐시 파일. 일별 활동(메시지/세션/툴콜),
+# 일별 모델별 토큰, 모델별 누적 사용량이 들어 있다. 로컬 파일 읽기라 인증 불필요.
+STATS_FILE = (
+    os.environ.get("CCUBAR_STATS_FILE", "").strip()
+    or os.path.expanduser("~/.claude/stats-cache.json")
+)
+# Claude Code 가 하루 단위로 갱신하는 파일이므로 이틀 넘게 낡았을 때만 stale 표시.
+STATS_STALE_THRESHOLD_SECONDS = int(os.getenv("STATS_STALE_THRESHOLD_SECONDS", "172800"))
 
 # 지원 브라우저 (browser_cookie3 경로 매핑)
 # - Safari: ~/Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies
@@ -350,7 +407,8 @@ def _warn_if_exposed():
 
     logger.warning(f"⚠  {BRIDGE_HOST} 에 바인드됨 — 이 머신 밖에서 접근 가능합니다.")
     logger.warning("⚠  인증이 없으므로 포트에 닿는 누구나 아래를 읽을 수 있습니다:")
-    logger.warning("⚠   · 쿼터 소진률 (5시간 / 7일 / Sonnet 7일)")
+    logger.warning("⚠   · 쿼터 소진률 (5시간 / 7일 / 모델별 주간)")
+    logger.warning("⚠   · 일별 활동 통계 — 메시지/세션 수, 모델별 토큰 (/api/stats)")
     if _aggregator is not None:
         logger.warning("⚠   · 프로젝트 이름과 절대 경로 (tokens.by_project[].cwd)")
         logger.warning("⚠   · 시간대별 활동 패턴 — 언제 작업하는지 (tokens.by_hour)")
@@ -786,6 +844,188 @@ def _scrape_via_snapshot():
 
 
 # ============================================================
+# OAuth 주간 모델 스코프 소스 (부가 기능)
+# ============================================================
+
+# 마지막 성공 파싱 결과와 마지막 시도 시각. 실패 시에도 fetched_at 을 갱신해
+# OAUTH_FETCH_INTERVAL 이 지나기 전에는 재시도하지 않는다 (실패는 대개 지속적).
+_oauth_cache = {"blocks": None, "fetched_at": None, "refreshing": False}
+_oauth_lock = threading.Lock()
+
+
+def _oauth_token_from_cred(cred):
+    """credentials dict → 유효한 accessToken. 만료(60초 여유)면 None. 갱신은 안 한다."""
+    if not isinstance(cred, dict):
+        return None
+    cred = cred.get("claudeAiOauth") or cred
+    if not isinstance(cred, dict):
+        return None
+    token = cred.get("accessToken")
+    if not isinstance(token, str) or not token:
+        return None
+    expires_at = cred.get("expiresAt")  # 밀리초 epoch
+    if isinstance(expires_at, (int, float)) and expires_at / 1000 < time.time() + 60:
+        logger.debug("OAuth accessToken 만료 — 갱신은 Claude Code 몫이므로 생략")
+        return None
+    return token
+
+
+def _load_oauth_access_token():
+    """~/.claude/.credentials.json → macOS Keychain 순으로 유효한 accessToken 을 찾는다."""
+    try:
+        with open(OAUTH_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
+            token = _oauth_token_from_cred(json.load(f))
+        if token:
+            return token
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.debug(f"credentials 파일 읽기 실패: {e}")
+
+    # Keychain 폴백. Claude Code 는 설정에 따라 파일 대신 Keychain 에 저장한다.
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/security", "find-generic-password",
+             "-s", OAUTH_KEYCHAIN_SERVICE, "-w"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return _oauth_token_from_cred(json.loads(proc.stdout.strip()))
+    except Exception as e:
+        logger.debug(f"Keychain 조회 실패: {e}")
+    return None
+
+
+def _fetch_oauth_usage(token):
+    """GET /api/oauth/usage. 성공 시 dict, 실패 시 None. 토큰은 로그에 남기지 않는다."""
+    req = urllib.request.Request(OAUTH_USAGE_URL, headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "anthropic-beta": "oauth-2025-04-20",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+        return data if isinstance(data, dict) else None
+    except urllib.error.HTTPError as e:
+        logger.warning(f"OAuth usage 조회 실패: HTTP {e.code}")
+    except Exception as e:
+        logger.warning(f"OAuth usage 조회 실패: {e}")
+    return None
+
+
+def _weekly_scope_slug(display_name):
+    """모델 표시명 → 응답 키 조각. 'Fable' → 'fable', 'Sonnet only' → 'sonnet_only'."""
+    return re.sub(r"[^a-z0-9]+", "_", display_name.lower()).strip("_")
+
+
+def _parse_weekly_scoped(raw):
+    """
+    /api/oauth/usage 응답의 limits[] 에서 kind=weekly_scoped 항목만 뽑아
+    {seven_day_<모델>: {utilization, resets_at, model}} 로 변환한다.
+    remaining_minutes 는 캐시가 낡아도 정확하도록 서빙 시점에 계산한다.
+    """
+    blocks = {}
+    for lim in (raw.get("limits") or []):
+        if not isinstance(lim, dict) or lim.get("kind") != "weekly_scoped":
+            continue
+        model = (((lim.get("scope") or {}).get("model")) or {}).get("display_name")
+        if not isinstance(model, str) or not model:
+            continue
+        try:
+            utilization = float(lim.get("percent"))
+        except (TypeError, ValueError):
+            continue
+        blocks[f"seven_day_{_weekly_scope_slug(model)}"] = {
+            "utilization": utilization,
+            "resets_at": lim.get("resets_at"),
+            "model": model,
+        }
+    return blocks
+
+
+def _refresh_oauth_usage():
+    """상류를 한 번 조회해 캐시를 갱신한다. 성공/실패와 무관하게 시도 시각을 남긴다."""
+    try:
+        token = _load_oauth_access_token()
+        blocks = None
+        if token:
+            raw = _fetch_oauth_usage(token)
+            if raw is not None:
+                blocks = _parse_weekly_scoped(raw)
+                logger.info(f"OAuth 주간 스코프 갱신: {sorted(blocks)}")
+        else:
+            logger.debug("OAuth 토큰 없음/만료 — 주간 모델 스코프 생략")
+        with _oauth_lock:
+            _oauth_cache["fetched_at"] = time.monotonic()
+            if blocks is not None:
+                # 실패 시에는 마지막 성공 값을 유지한다 (resets_at 이 지나면 서빙에서 걸러짐).
+                _oauth_cache["blocks"] = blocks
+    finally:
+        with _oauth_lock:
+            _oauth_cache["refreshing"] = False
+
+
+def _oauth_weekly_blocks(sync=False):
+    """
+    서빙용 주간 모델 스코프 블록을 반환한다. 캐시가 낡았으면 백그라운드로 갱신을
+    걸고 일단 마지막 값을 준다 (sync=True 면 갱신을 기다린다 — CLI 단발 실행용).
+    """
+    if not OAUTH_USAGE_ENABLED:
+        return None
+
+    with _oauth_lock:
+        fetched_at = _oauth_cache["fetched_at"]
+        expired = fetched_at is None or (time.monotonic() - fetched_at) > OAUTH_FETCH_INTERVAL
+        should_refresh = expired and not _oauth_cache["refreshing"]
+        if should_refresh:
+            _oauth_cache["refreshing"] = True
+
+    if should_refresh:
+        if sync:
+            _refresh_oauth_usage()
+        else:
+            threading.Thread(target=_refresh_oauth_usage, daemon=True).start()
+
+    with _oauth_lock:
+        blocks = _oauth_cache["blocks"]
+        if not blocks:
+            return None
+        blocks = {k: dict(v) for k, v in blocks.items()}
+
+    # remaining_minutes 는 항상 현재 시각 기준으로 계산 (리셋이 지난 항목은 버린다 —
+    # 지난 주 창의 낡은 퍼센트를 새 창인 것처럼 보여주지 않기 위함).
+    now = datetime.now(timezone.utc)
+    fresh = {}
+    for key, block in blocks.items():
+        resets_at = block.get("resets_at")
+        remaining_minutes = 0
+        if isinstance(resets_at, str) and resets_at:
+            try:
+                resets_dt = datetime.fromisoformat(resets_at.replace("Z", "+00:00"))
+                remaining_seconds = (resets_dt - now).total_seconds()
+                if remaining_seconds <= 0:
+                    continue
+                remaining_minutes = int(remaining_seconds // 60)
+            except Exception:
+                pass
+        block["remaining_minutes"] = remaining_minutes
+        fresh[key] = block
+    return fresh or None
+
+
+def _attach_oauth_weekly(usage, sync=False):
+    """usage dict 에 주간 모델 스코프 키를 덧붙인다. 기존 키는 절대 덮지 않는다."""
+    try:
+        blocks = _oauth_weekly_blocks(sync=sync)
+        if blocks:
+            for key, block in blocks.items():
+                usage.setdefault(key, block)
+    except Exception as e:
+        logger.warning(f"OAuth 주간 스코프 병합 실패 (쿼터 응답은 정상): {e}")
+
+
+# ============================================================
 # 메인 스크래핑 함수 (데이터 소스 디스패치)
 # ============================================================
 
@@ -877,6 +1117,10 @@ def api_usage():
 
         # 로컬 로그 기반 토큰 통계를 덧붙인다. 순수 부가물이므로 무슨 일이 나든 삼켜서
         # 상류 쿼터 응답은 그대로 내보낸다. dict 는 삽입 순서를 보존하므로 맨 아래에 붙는다.
+        # 주간 모델 스코프("Current week (Fable)" 등)를 덧붙인다. statusline 스냅샷에는
+        # 없는 데이터라 Claude Code OAuth 토큰으로 별도 조회하며, 실패해도 삼킨다.
+        _attach_oauth_weekly(usage)
+
         try:
             tokens = _tokens_block(request.args)
             if tokens is not None:
@@ -920,6 +1164,82 @@ def api_usage():
 
 
 # ============================================================
+# /api/stats — Claude Code 로컬 통계 (그래프용 데이터)
+# ============================================================
+
+def _camel_to_snake(name):
+    """dailyActivity → daily_activity. 소문자-전용 키(모델 ID, 날짜)는 그대로."""
+    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", name).lower()
+
+
+def _snake_keys(obj):
+    """dict 키를 재귀적으로 snake_case 로 변환한다 (값과 리스트 항목 포함)."""
+    if isinstance(obj, dict):
+        return {_camel_to_snake(k) if isinstance(k, str) else k: _snake_keys(v)
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_snake_keys(v) for v in obj]
+    return obj
+
+
+@app.route("/api/stats")
+def api_stats():
+    """
+    Claude Code /status 화면과 같은 원천(stats-cache.json)의 통계를 내려준다.
+
+    stats 블록 내용 (그래프용):
+      daily_activity[]      날짜별 message_count / session_count / tool_call_count
+      daily_model_tokens[]  날짜별 tokens_by_model (모델 ID → 토큰 수; 스택 차트용)
+      model_usage{}         모델별 누적 input/output/cache 토큰
+      total_sessions, total_messages, longest_session, first_session_date 등
+
+    파일은 Claude Code 가 갱신하는 캐시라 최대 하루쯤 낡을 수 있다 — updated_at
+    (파일 mtime)과 stale 로 신선도를 알린다.
+    """
+    logger.info("요청옴(/api/stats)")
+    timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        with open(STATS_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if not isinstance(raw, dict):
+            raise ValueError("stats-cache 가 dict 가 아님")
+    except FileNotFoundError:
+        logger.info("stats-cache 파일 없음 — 404")
+        return jsonify({
+            "error": f"통계 파일이 없습니다: {STATS_FILE}",
+            "error_type": "StatsUnavailable",
+            "hint": "Claude Code 를 한 번 사용하면 stats-cache.json 이 생성됩니다.",
+            "timestamp": timestamp,
+        }), 404
+    except Exception as e:
+        logger.warning(f"stats-cache 읽기 실패: {e}")
+        return jsonify({
+            "error": f"통계 파일을 읽을 수 없습니다: {e}",
+            "error_type": "StatsUnavailable",
+            "hint": "로그 파일(app.log)을 확인하세요.",
+            "timestamp": timestamp,
+        }), 500
+
+    updated_at, age_seconds = None, None
+    try:
+        mtime = os.path.getmtime(STATS_FILE)
+        updated_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+        age_seconds = max(0, int(time.time() - mtime))
+    except OSError:
+        pass
+
+    return jsonify({
+        "timestamp": timestamp,
+        "source": "stats-cache",
+        "updated_at": updated_at,
+        "age_seconds": age_seconds,
+        "stale": (age_seconds is None) or (age_seconds > STATS_STALE_THRESHOLD_SECONDS),
+        "stats": _snake_keys(raw),
+    }), 200
+
+
+# ============================================================
 # CLI 엔트리포인트
 # ============================================================
 
@@ -958,6 +1278,14 @@ if __name__ == '__main__':
         else:
             logger.info(f"스냅샷 파일: {SNAPSHOT_FILE}")
             logger.info(f"stale 임계값: {STALE_THRESHOLD_SECONDS}초")
+        if OAUTH_USAGE_ENABLED:
+            logger.info(
+                f"OAuth 주간 모델 스코프: 활성 (갱신 {OAUTH_FETCH_INTERVAL}초, "
+                f"끄려면 CCUBAR_OAUTH_USAGE=0)"
+            )
+        else:
+            logger.info("OAuth 주간 모델 스코프: 비활성 (CCUBAR_OAUTH_USAGE=0)")
+        logger.info(f"통계 파일(/api/stats): {STATS_FILE}")
         logger.info(f"REST API 서버 시작: http://{BRIDGE_HOST}:{args.port}/api/usage")
         logger.info(f"캐시 TTL: {CACHE_TTL_SECONDS}초")
         logger.info(f"로그 레벨: {LOG_LEVEL}")
@@ -968,6 +1296,11 @@ if __name__ == '__main__':
         # even if cookie extraction blocks (Keychain prompts, etc.).
         threading.Thread(target=warmup_session_on_startup, daemon=True).start()
         threading.Thread(target=warmup_token_stats_on_startup, daemon=True).start()
+        if OAUTH_USAGE_ENABLED:
+            # 첫 폴링부터 주간 모델 스코프가 실리도록 미리 한 번 조회해 둔다.
+            threading.Thread(
+                target=lambda: _oauth_weekly_blocks(sync=True), daemon=True
+            ).start()
 
         app.run(host=BRIDGE_HOST, port=args.port, debug=False)
         sys.exit(0)
@@ -978,6 +1311,8 @@ if __name__ == '__main__':
             logger.info("캐시 비활성화 (--no-cache)")
 
         usage_data = scrape_claude_usage(use_cache=use_cache)
+        # CLI 단발 실행은 백그라운드 갱신을 기다릴 다음 폴링이 없으므로 동기 조회.
+        _attach_oauth_weekly(usage_data, sync=True)
         print(json.dumps(usage_data, indent=2))
         sys.exit(0)
     except Exception as e:

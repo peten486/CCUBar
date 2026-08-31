@@ -14,7 +14,7 @@
 		</data>
 		<key>Resources/bridge/README.md</key>
 		<data>
-		zmFGn66vh5tedfXeycWs10Vu0qc=
+		udKohai95YeqJvFdAkLVjnl38DA=
 		</data>
 		<key>Resources/bridge/claude_token_stats.py</key>
 		<data>
@@ -22,7 +22,7 @@
 		</data>
 		<key>Resources/bridge/claude_usage_scraper.py</key>
 		<data>
-		F2Wel/trQ5KgV0YUgODLNPoTceQ=
+		FRZWovgS9EvNGlrGAJ2igAQvTTQ=
 		</data>
 		<key>Resources/bridge/refresh_keychain.sh</key>
 		<data>
@@ -38,7 +38,7 @@
 		</data>
 		<key>Resources/bridge/statusline-custom.sh</key>
 		<data>
-		k7aeN9ZJgfbFHCJ2GPvkmZJu7no=
+		SaUXNJNQvjIc91S0/TzRYmaKgD8=
 		</data>
 		<key>Resources/bridge/stop.sh</key>
 		<data>
@@ -69,7 +69,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			8y2z0B6cXosRR67LpmKrVdtOxn9A5r3K0FuPn1aWHIA=
+			Zof8FKLWMrg39tnd4MtUGXSyIcdBkp6aqQK6PSOv3Ko=
 			</data>
 		</dict>
 		<key>Resources/bridge/claude_token_stats.py</key>
@@ -83,7 +83,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			9fh9tlQMSBiQpB9oa0KBMAm060TeEeGQf1Aka0VRYV0=
+			9ZdpeWGJ6390fcvSsicdUkiFhAc23igI1X9/d+OTeVE=
 			</data>
 		</dict>
 		<key>Resources/bridge/refresh_keychain.sh</key>
@@ -111,7 +111,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			b64G1UoWWBXsYKuOgTyg/XPOKSwwTd8BnYPsUwqO1C4=
+			saP+8S5PR+0JV6uCLeKPZU0qP5g3ptdUktaAdrwRgG8=
 			</data>
 		</dict>
 		<key>Resources/bridge/stop.sh</key>
