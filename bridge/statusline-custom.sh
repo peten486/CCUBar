@@ -60,10 +60,15 @@ fi
   else
     py=$(command -v python3 || command -v python)
     if [ -n "$py" ]; then
-      snapshot_json=$(printf '%s' "$input" | "$py" - <<'PY' 2>/dev/null
+      # 주의: 파이프로 stdin 을 넘기면 안 된다 — heredoc(프로그램 본문)이 stdin 을
+      # 차지해서 데이터가 유실된다. 데이터는 임시 파일 + argv 로 전달한다.
+      tmpin="$(mktemp "${SNAPSHOT}.in.XXXXXX" 2>/dev/null)"
+      if [ -n "$tmpin" ] && printf '%s' "$input" > "$tmpin"; then
+        snapshot_json=$("$py" - "$tmpin" <<'PY' 2>/dev/null
 import sys, json, time
 try:
-    d = json.load(sys.stdin)
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        d = json.load(fh)
 except Exception:
     sys.exit(0)
 rl = d.get("rate_limits") or {}
@@ -88,7 +93,55 @@ if isinstance(s, dict):
 print(json.dumps(out))
 PY
 )
+      fi
+      rm -f "$tmpin"
     fi
+  fi
+
+  # 단조성 가드: 낡은 세션의 에코 방지.
+  # 여러 Claude Code 세션이 이 스크립트를 각자 호출하는데, 오래 놀던 세션은
+  # 이전 5시간 창의 rate_limits 를 들고 있다가 statusline 을 다시 그릴 때
+  # 그대로 써넣는다. five_hour.resets_at 은 창이 바뀔 때만 미래로 전진하므로,
+  # 기존 스냅샷보다 과거의 resets_at 을 가진 쓰기는 통째로 버린다.
+  # (이 에코가 소비자(폰 앱)의 "새 창" 감지를 오발시켜 같은 구간 알림이
+  #  폴링마다 반복 발화했다.)
+  if [ -n "$snapshot_json" ] && [ -f "$SNAPSHOT" ]; then
+    verdict=""
+    if command -v jq >/dev/null 2>&1; then
+      verdict=$(jq -rn --argjson new "$snapshot_json" --slurpfile old "$SNAPSHOT" '
+        def ep(x): x.rate_limits.five_hour.resets_at? // null | if type == "number" then . else null end;
+        ep($old[0]) as $o | ep($new) as $n
+        | if $o != null and ($n == null or $n < $o) then "skip" else "write" end
+      ' 2>/dev/null)
+    else
+      py=$(command -v python3 || command -v python)
+      if [ -n "$py" ]; then
+        # 위와 같은 이유로 데이터는 임시 파일 + argv 로 전달한다 (heredoc 이 stdin 차지).
+        tmpnew="$(mktemp "${SNAPSHOT}.new.XXXXXX" 2>/dev/null)"
+        if [ -n "$tmpnew" ] && printf '%s' "$snapshot_json" > "$tmpnew"; then
+          verdict=$("$py" - "$tmpnew" "$SNAPSHOT" <<'PY' 2>/dev/null
+import sys, json
+def ep(d):
+    try:
+        return int((((d.get("rate_limits") or {}).get("five_hour")) or {}).get("resets_at"))
+    except (TypeError, ValueError):
+        return None
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        new = json.load(f)
+    with open(sys.argv[2], encoding="utf-8") as f:
+        old = json.load(f)
+    o, n = ep(old), ep(new)
+    print("skip" if (o is not None and (n is None or n < o)) else "write")
+except Exception:
+    print("write")
+PY
+)
+        fi
+        rm -f "$tmpnew"
+      fi
+    fi
+    [ "$verdict" = "skip" ] && snapshot_json=""
   fi
 
   # 부재 보존: 뽑아낸 게 없으면 기존 스냅샷을 건드리지 않는다.
