@@ -35,6 +35,7 @@ GET /api/usage
 | `five_hour` | object | The rolling 5-hour session window |
 | `seven_day` | object — **may be absent** | The combined 7-day cap (Max plans) |
 | `seven_day_sonnet` | object — **may be absent** | The Sonnet-specific 7-day cap |
+| `seven_day_<model>` | object — **may be absent** | Model-scoped weekly caps (e.g. `seven_day_fable` = "Current week (Fable)"). Carries an extra `model` field with the display name. See [Model-scoped weekly quotas](#model-scoped-weekly-quotas-seven_day_model) |
 | `source` | string | `"api"` — where the numbers came from |
 | `cached` | bool | `true` if served from the in-process cache with no network call (default 5 min TTL) |
 | `timestamp` | string | When this data was fetched from claude.ai, ISO-8601 UTC |
@@ -266,6 +267,11 @@ python3 claude_usage_scraper.py
 | `CCUBAR_USAGE_SOURCE` | `snapshot` | Data source. `snapshot` reads the statusline snapshot file (no auth, no network). `browser_cookie` is the legacy path that extracts the `sessionKey` cookie and calls claude.ai directly |
 | `CCUBAR_USAGE_SNAPSHOT` | `~/.claude/usage-snapshot.json` | Path to the snapshot written by `statusline-custom.sh` (snapshot source only) |
 | `STALE_THRESHOLD_SECONDS` | `1800` | A snapshot older than this is served with `"stale": true` (snapshot source only) |
+| `CCUBAR_OAUTH_USAGE` | `1` | `0` disables the model-scoped weekly quota fetch (`seven_day_fable` etc.) |
+| `CCUBAR_OAUTH_CREDENTIALS` | `~/.claude/.credentials.json` | Where to read the Claude Code OAuth token (macOS Keychain is the fallback) |
+| `OAUTH_FETCH_INTERVAL` | `600` | Minimum seconds between `/api/oauth/usage` calls (successes and failures alike) |
+| `CCUBAR_STATS_FILE` | `~/.claude/stats-cache.json` | Source file for `/api/stats` |
+| `STATS_STALE_THRESHOLD_SECONDS` | `172800` | `/api/stats` marks itself `"stale": true` past this age |
 | `API_PORT` | `8306` | Listening port |
 | `BRIDGE_HOST` | `0.0.0.0` | Bind address. Set to `127.0.0.1` to accept local connections only |
 | `CACHE_TTL_SECONDS` | `300` | How long an upstream quota response is reused |
@@ -280,10 +286,11 @@ python3 claude_usage_scraper.py
 
 The default bind is `0.0.0.0`, so a phone, watchface, or home server on your network can poll it. **There is no authentication of any kind** — anyone who can reach the port reads the whole response, which includes:
 
-- your quota utilization
+- your quota utilization (including per-model weekly caps)
 - your project names and their **absolute filesystem paths** (`tokens.by_project[].cwd`)
 - **when you work**, hour by hour (`tokens.by_hour`)
 - token volumes and per-model breakdown
+- daily activity history — messages, sessions, per-model tokens (`/api/stats`)
 
 Your `sessionKey` cookie is never included in a response, so this is activity metadata, not a credential leak. Still, think before forwarding the port through a router to the public internet.
 
@@ -336,6 +343,58 @@ that gauge when it is absent. When a snapshot is missing or older than
 
 To A/B test the logout hypothesis, set `CCUBAR_USAGE_SOURCE=browser_cookie` to restore the
 legacy path below.
+
+## Model-scoped weekly quotas (`seven_day_<model>`)
+
+The statusline stdin structurally carries only `five_hour` and `seven_day` — the
+model-scoped weekly caps that `/usage` shows as **"Current week (Fable)"** never reach the
+snapshot. Their only local source is the endpoint Claude Code itself polls:
+`GET https://api.anthropic.com/api/oauth/usage`, authenticated with Claude Code's **own
+OAuth token** (read from `~/.claude/.credentials.json`, falling back to the macOS Keychain
+item `Claude Code-credentials`).
+
+This is a completely separate credential from the browser `sessionKey` cookie, so it does
+not interfere with the logout-hypothesis A/B test. Safety rules baked in:
+
+- The bridge **never refreshes** the token — refreshing consumes the refresh token and
+  could break Claude Code's session. An expired token simply means the keys are omitted.
+- Fetches happen at most once per `OAUTH_FETCH_INTERVAL` (default 10 min) in a background
+  thread; a failure never blocks or degrades the rest of the response.
+- Entries whose `resets_at` has already passed are dropped rather than served — a stale
+  percentage from last week's window must not masquerade as the new week.
+- Snapshot values are authoritative: these keys are only ever *added*, never overwrite
+  `five_hour`/`seven_day`.
+
+Each entry is keyed `seven_day_` + the lowercased display name (`Fable` → `seven_day_fable`)
+and has the standard `{utilization, resets_at, remaining_minutes}` shape plus `model`
+(the human-readable name). Set `CCUBAR_OAUTH_USAGE=0` to turn the whole feature off.
+
+## Local activity statistics (`GET /api/stats`)
+
+Serves the same data Claude Code's `/status` screen graphs, read from
+`~/.claude/stats-cache.json` — a local file, no auth, no network:
+
+```json
+{
+  "timestamp": "...", "source": "stats-cache",
+  "updated_at": "...", "age_seconds": 3600, "stale": false,
+  "stats": {
+    "daily_activity":     [ { "date": "2026-08-30", "message_count": 189,
+                              "session_count": 5, "tool_call_count": 33 } ],
+    "daily_model_tokens": [ { "date": "2026-08-30",
+                              "tokens_by_model": { "claude-fable-5": 4500668 } } ],
+    "model_usage":        { "claude-fable-5": { "input_tokens": 0, "output_tokens": 0 } },
+    "total_sessions": 43, "total_messages": 32343,
+    "longest_session": { }, "first_session_date": "...", "last_computed_date": "2026-08-30"
+  }
+}
+```
+
+`daily_activity` and `daily_model_tokens` cover roughly the last month — enough for a
+line/stacked-bar chart. Keys are converted to `snake_case`; model IDs and dates are left
+untouched. The file is a cache Claude Code refreshes about daily, so `updated_at` (file
+mtime) tells you how fresh it is; `stale` flips after `STATS_STALE_THRESHOLD_SECONDS`
+(default 2 days). A missing file returns `404` with `error_type: "StatsUnavailable"`.
 
 ## How it works — legacy `browser_cookie` path (for the curious)
 
