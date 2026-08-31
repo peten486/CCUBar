@@ -333,7 +333,7 @@ Tests are in pure XCTest and use protocol-based fakes (`UsageFetching` / `Notifi
 
 - **Hard dependency on the bundled bridge** — by design, since Claude Code's `/usage` slash-command isn't exposed non-interactively. If Anthropic publishes a machine-readable endpoint, the bridge can be replaced with a direct call.
 - **No historical chart** — each refresh is a point-in-time snapshot; sparkline support is a post-1.0 item.
-- **No Windows / Linux support** — AppKit-native; would need a Tauri/Electron port.
+- **macOS only in this repo** — the menu-bar app is AppKit-native. The Windows version is developed separately at [peten486/CCUBar_Win](https://github.com/peten486/CCUBar_Win). No Linux support.
 - **No App Store build** — uses `SMAppService` in a way that needs `/Applications`, fine for direct download, not for sandboxed MAS distribution.
 
 ---
