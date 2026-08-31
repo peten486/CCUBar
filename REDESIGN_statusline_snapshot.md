@@ -278,16 +278,12 @@ UsageSource (인터페이스)
 
 ---
 
-## 크로스 플랫폼
+## 플랫폼 (macOS)
 
-경로는 하드코딩하지 말고 홈 기준 상대 경로로 해석한다.
+경로는 하드코딩하지 말고 홈 기준 상대 경로로 해석한다(`~/.claude/`,
+파이썬이면 `Path.home() / ".claude"`). 현재 지원 대상은 macOS 뿐이다.
 
-- macOS / Linux: `~/.claude/`
-- Windows: `%USERPROFILE%\.claude\`
-- 파이썬이면 `Path.home() / ".claude"` 한 줄로 통일
-
-수집기 래퍼는 셸 스크립트이므로 Windows에서는 별도 구현이 필요하다.
-다만 **모니터링 전용 기기에는 수집기가 필요 없다.** 수집은 Claude Code를 실제로
+**모니터링 전용 기기에는 수집기가 필요 없다.** 수집은 Claude Code를 실제로
 돌리는 기기(Mac mini)에서만 하고, 다른 기기는 REST를 읽기만 한다.
 
 ---
