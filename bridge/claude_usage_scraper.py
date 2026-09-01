@@ -29,6 +29,14 @@ Flask REST API 서버 모드(--server)로 실행하면 /api/usage 엔드포인�
       가져와 /api/usage 응답에 병합한다. 토큰 갱신은 절대 하지 않는다 (fail-soft).
       CCUBAR_OAUTH_USAGE=0 으로 끌 수 있다.
 
+  OAuth 폴백 (five_hour/seven_day)
+    - statusline 스냅샷은 Claude Code 세션이 떠 있어야만 갱신되므로, 세션이 없는
+      시간대(밤 등)에는 나이만으로 stale 이 된다. 같은 /api/oauth/usage 응답에는
+      계정 전체 5시간/7일 창도 실려 오므로, 스냅샷이 stale 일 때는 그 값으로
+      five_hour/seven_day 를 채워 신선하게 서빙한다 (source="oauth").
+    - OAuth 데이터 자체가 낡았으면(access token 만료 — 마지막 Claude Code 사용
+      후 ~8시간 — 등) 정직하게 stale 응답을 유지한다.
+
   /api/stats
     - Claude Code /status 화면과 같은 원천(~/.claude/stats-cache.json)의 일별 활동·
       모델별 토큰 통계를 그래프용으로 내려준다. 로컬 파일 읽기라 인증 불필요.
@@ -160,6 +168,19 @@ OAUTH_USAGE_URL = (
 # 상류 재조회 간격. 주간 한도는 천천히 움직이므로 클라이언트 폴링(수 초)마다
 # 부를 이유가 없다. 실패해도 이 간격이 지나야 재시도한다.
 OAUTH_FETCH_INTERVAL = int(os.getenv("OAUTH_FETCH_INTERVAL", "600"))
+
+# /api/oauth/usage 의 limits[] 중 계정 전체 창 kind → /api/usage 응답 키 매핑.
+# 실측(2026-09): kinds = [session, weekly_all, weekly_scoped]. session/weekly_all 외
+# 항목은 동의어 후보(스키마 변경 대비 관용 매핑)다. 실제로 온 kind 목록은 변화가
+# 있을 때 INFO 로그로 남으므로, 상류 스키마가 바뀌면 로그에서 바로 드러난다.
+# 모델 스코프 창(kind=weekly_scoped)은 _parse_weekly_scoped() 가 별도 처리한다.
+OAUTH_OVERALL_KINDS = {
+    "session": "five_hour",
+    "five_hour": "five_hour",
+    "weekly_all": "seven_day",
+    "weekly": "seven_day",
+    "seven_day": "seven_day",
+}
 
 # ============================================================
 # 로컬 통계(stats-cache.json) 소스 설정
@@ -849,7 +870,14 @@ def _scrape_via_snapshot():
 
 # 마지막 성공 파싱 결과와 마지막 시도 시각. 실패 시에도 fetched_at 을 갱신해
 # OAUTH_FETCH_INTERVAL 이 지나기 전에는 재시도하지 않는다 (실패는 대개 지속적).
-_oauth_cache = {"blocks": None, "fetched_at": None, "refreshing": False}
+# blocks   — 주간 모델 스코프 (seven_day_fable 등)
+# overall  — 계정 전체 창 (five_hour/seven_day; 스냅샷 stale 시 폴백용)
+# success_at — 마지막 성공 조회의 벽시계 시각(time.time()). 폴백 신선도 판정에 쓴다.
+# kinds    — 마지막 응답의 kind 목록. 변화가 있을 때만 INFO 로 남겨 스키마 변경을 드러낸다.
+_oauth_cache = {
+    "blocks": None, "overall": None, "success_at": None,
+    "kinds": None, "fetched_at": None, "refreshing": False,
+}
 _oauth_lock = threading.Lock()
 
 
@@ -944,16 +972,58 @@ def _parse_weekly_scoped(raw):
     return blocks
 
 
+def _oauth_resets_iso(resets_at):
+    """limits[] 의 resets_at 을 ISO8601 문자열로 정규화한다. epoch 숫자도 허용. 실패 시 None."""
+    if isinstance(resets_at, str) and resets_at:
+        return resets_at
+    if isinstance(resets_at, (int, float)):
+        return _epoch_to_iso(resets_at)
+    return None
+
+
+def _parse_oauth_overall(raw):
+    """
+    limits[] 에서 계정 전체 창(session/weekly 류)을 {five_hour|seven_day: {...}} 로 뽑는다.
+    remaining_minutes 는 캐시가 낡아도 정확하도록 서빙 시점에 계산한다.
+    반환: (blocks, kinds) — kinds 는 응답에 온 kind 전체 목록(스키마 변경 감지 로그용).
+    """
+    blocks = {}
+    kinds = []
+    for lim in (raw.get("limits") or []):
+        if not isinstance(lim, dict):
+            continue
+        kind = lim.get("kind")
+        kinds.append(kind)
+        period = OAUTH_OVERALL_KINDS.get(kind)
+        if period is None or period in blocks:
+            continue
+        # 모델 스코프가 달린 항목은 전체 창이 아니다 (현재는 weekly_scoped 만 그렇지만 방어).
+        if (lim.get("scope") or {}).get("model"):
+            continue
+        try:
+            utilization = float(lim.get("percent"))
+        except (TypeError, ValueError):
+            continue
+        blocks[period] = {
+            "utilization": utilization,
+            "resets_at": _oauth_resets_iso(lim.get("resets_at")),
+        }
+    return blocks, kinds
+
+
 def _refresh_oauth_usage():
     """상류를 한 번 조회해 캐시를 갱신한다. 성공/실패와 무관하게 시도 시각을 남긴다."""
     try:
         token = _load_oauth_access_token()
-        blocks = None
+        blocks, overall, kinds = None, None, None
         if token:
             raw = _fetch_oauth_usage(token)
             if raw is not None:
                 blocks = _parse_weekly_scoped(raw)
-                logger.info(f"OAuth 주간 스코프 갱신: {sorted(blocks)}")
+                overall, kinds = _parse_oauth_overall(raw)
+                logger.info(
+                    f"OAuth 갱신: 주간 스코프 {sorted(blocks)}, 전체 창 {sorted(overall)}"
+                )
         else:
             logger.debug("OAuth 토큰 없음/만료 — 주간 모델 스코프 생략")
         with _oauth_lock:
@@ -961,6 +1031,12 @@ def _refresh_oauth_usage():
             if blocks is not None:
                 # 실패 시에는 마지막 성공 값을 유지한다 (resets_at 이 지나면 서빙에서 걸러짐).
                 _oauth_cache["blocks"] = blocks
+                _oauth_cache["overall"] = overall
+                _oauth_cache["success_at"] = time.time()
+                if kinds != _oauth_cache["kinds"]:
+                    # 상류 스키마 변화(새 kind 등장/소멸)는 매핑 점검 신호 — 눈에 띄게 남긴다.
+                    logger.info(f"OAuth limits kinds 변화: {_oauth_cache['kinds']} → {kinds}")
+                    _oauth_cache["kinds"] = kinds
     finally:
         with _oauth_lock:
             _oauth_cache["refreshing"] = False
@@ -1023,6 +1099,72 @@ def _attach_oauth_weekly(usage, sync=False):
                 usage.setdefault(key, block)
     except Exception as e:
         logger.warning(f"OAuth 주간 스코프 병합 실패 (쿼터 응답은 정상): {e}")
+
+
+def _oauth_overall_blocks():
+    """
+    폴백용 계정 전체 창 사본과 나이를 (blocks, age_seconds) 로 반환한다. 없으면 (None, None).
+    갱신 트리거는 _oauth_weekly_blocks() 가 담당하므로 여기서는 캐시만 읽는다
+    (호출 순서상 항상 그 뒤에 불린다 — _apply_oauth_fallback 참고).
+    """
+    with _oauth_lock:
+        overall = _oauth_cache["overall"]
+        success_at = _oauth_cache["success_at"]
+        if not overall or success_at is None:
+            return None, None
+        overall = {k: dict(v) for k, v in overall.items()}
+    age = max(0, int(time.time() - success_at))
+
+    # remaining_minutes 는 현재 시각 기준으로 계산하고, 리셋이 지난 창은 버린다
+    # (지난 창의 낡은 퍼센트를 새 창인 것처럼 보여주지 않기 위함 — weekly 와 동일 규칙).
+    now = datetime.now(timezone.utc)
+    fresh = {}
+    for period, block in overall.items():
+        resets_at = block.get("resets_at")
+        remaining_minutes = 0
+        if isinstance(resets_at, str) and resets_at:
+            try:
+                resets_dt = datetime.fromisoformat(resets_at.replace("Z", "+00:00"))
+                remaining_seconds = (resets_dt - now).total_seconds()
+                if remaining_seconds <= 0:
+                    continue
+                remaining_minutes = int(remaining_seconds // 60)
+            except Exception:
+                pass
+        block["remaining_minutes"] = remaining_minutes
+        fresh[period] = block
+    return (fresh or None), age
+
+
+def _apply_oauth_fallback(usage):
+    """
+    스냅샷이 stale(또는 부재)일 때 five_hour/seven_day 를 OAuth 조회값으로 채운다.
+
+    statusline 은 Claude Code 세션이 떠 있을 때만 스냅샷을 갱신하므로, 세션이 없는
+    시간대에는 실제 사용량과 무관하게 나이만으로 stale 이 된다. OAuth 값이 신선하면
+    (STALE_THRESHOLD_SECONDS 이내 성공 조회) 그걸로 채워 신선한 응답을 만든다.
+    OAuth 마저 낡았으면(토큰 만료 등) 아무것도 바꾸지 않는다 — stale 은 정직하게.
+    _attach_oauth_weekly() 뒤에 불러야 한다 (그쪽이 캐시 갱신을 트리거한다).
+    """
+    if not OAUTH_USAGE_ENABLED or not usage.get("stale"):
+        return
+    try:
+        blocks, age = _oauth_overall_blocks()
+        if not blocks or age is None or age > STALE_THRESHOLD_SECONDS:
+            return
+        for period, block in blocks.items():
+            usage[period] = block
+        # 필수 창(five_hour)이 채워졌을 때만 신선 판정 — REQUIRED_PERIODS 와 같은 기준.
+        if "five_hour" in blocks:
+            usage["stale"] = False
+            usage["source"] = "oauth"
+            usage["age_seconds"] = age
+            usage["updated_at"] = datetime.fromtimestamp(
+                time.time() - age, tz=timezone.utc
+            ).isoformat()
+        logger.info(f"스냅샷 stale — OAuth 폴백 적용 ({sorted(blocks)}, age={age}초)")
+    except Exception as e:
+        logger.warning(f"OAuth 폴백 실패 (스냅샷 응답 유지): {e}")
 
 
 # ============================================================
@@ -1120,6 +1262,9 @@ def api_usage():
         # 주간 모델 스코프("Current week (Fable)" 등)를 덧붙인다. statusline 스냅샷에는
         # 없는 데이터라 Claude Code OAuth 토큰으로 별도 조회하며, 실패해도 삼킨다.
         _attach_oauth_weekly(usage)
+
+        # 스냅샷이 stale 이면(세션 없는 시간대) 같은 OAuth 조회의 전체 창으로 폴백.
+        _apply_oauth_fallback(usage)
 
         try:
             tokens = _tokens_block(request.args)
@@ -1313,6 +1458,7 @@ if __name__ == '__main__':
         usage_data = scrape_claude_usage(use_cache=use_cache)
         # CLI 단발 실행은 백그라운드 갱신을 기다릴 다음 폴링이 없으므로 동기 조회.
         _attach_oauth_weekly(usage_data, sync=True)
+        _apply_oauth_fallback(usage_data)
         print(json.dumps(usage_data, indent=2))
         sys.exit(0)
     except Exception as e:
