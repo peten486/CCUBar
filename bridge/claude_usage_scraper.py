@@ -53,6 +53,7 @@ import re
 import json
 import sys
 import time
+import shutil
 import subprocess
 import configparser
 import certifi
@@ -181,6 +182,23 @@ OAUTH_OVERALL_KINDS = {
     "weekly": "seven_day",
     "seven_day": "seven_day",
 }
+
+# ============================================================
+# 수동 토큰 갱신 (/api/refresh) 설정
+# ============================================================
+
+# OAuth access token 은 마지막 Claude Code 사용 후 ~8시간이면 만료되고, 갱신은
+# Claude Code 만 할 수 있다(위 안전 규칙). /api/refresh 는 위젯의 수동 조회가
+# 호출하는 탈출구다: claude -p 를 한 번 실행해 Claude Code 가 스스로 토큰을
+# 재발급하게 만든 뒤, OAuth 캐시를 즉시 재조회한다.
+#
+# 비용/보안:
+#   - 실행 자체가 API 호출 1회를 소모하고, 놀고 있던 5시간 창을 새로 시작시킨다.
+#     사용자가 버튼으로 명시 요청했을 때만 쓰라고 만든 것이므로 쿨다운으로 남용을 막는다.
+#   - 요청 파라미터는 일절 사용하지 않는다 — 항상 고정 명령(claude -p "ok")만 실행.
+CLAUDE_BIN = os.environ.get("CCUBAR_CLAUDE_BIN", "").strip()
+REFRESH_COOLDOWN_SECONDS = int(os.getenv("REFRESH_COOLDOWN_SECONDS", "600"))
+REFRESH_TIMEOUT_SECONDS = int(os.getenv("REFRESH_TIMEOUT_SECONDS", "180"))
 
 # ============================================================
 # 로컬 통계(stats-cache.json) 소스 설정
@@ -1168,6 +1186,73 @@ def _apply_oauth_fallback(usage):
 
 
 # ============================================================
+# 수동 토큰 갱신 (claude -p 1회 실행)
+# ============================================================
+
+_refresh_state = {"running": False, "started_at": None, "last_ok": None}
+_refresh_lock = threading.Lock()
+
+
+def _find_claude_bin():
+    """claude CLI 절대경로를 찾는다. CCUBAR_CLAUDE_BIN 이 있으면 그것만 신뢰한다."""
+    if CLAUDE_BIN:
+        return CLAUDE_BIN if os.path.exists(CLAUDE_BIN) else None
+    candidates = [
+        os.path.expanduser("~/.claude/local/claude"),
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+    ]
+    # nvm 설치본 (~/.nvm/versions/node/*/bin/claude) — 여러 버전이 있으면 최신 설치 순.
+    import glob
+    candidates += sorted(
+        glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/claude")),
+        key=lambda p: os.path.getmtime(p), reverse=True,
+    )
+    for cand in candidates:
+        if os.path.exists(cand):
+            return cand
+    # 앱 번들에서 스폰된 프로세스는 PATH 가 빈약할 수 있으므로 which 는 최후 수단.
+    return shutil.which("claude")
+
+
+def _run_token_refresh(bin_path):
+    """claude -p 를 한 번 실행하고, 끝나면 OAuth 캐시를 동기 재조회한다 (백그라운드 스레드)."""
+    ok = False
+    try:
+        logger.info(f"수동 토큰 갱신: {bin_path} -p 실행")
+        # claude 는 "#!/usr/bin/env node" 스크립트일 수 있다(nvm 설치본) —
+        # 같은 bin 디렉터리를 PATH 앞에 붙여 node 를 찾을 수 있게 한다.
+        env = dict(os.environ)
+        env["PATH"] = os.path.dirname(bin_path) + os.pathsep + env.get("PATH", "")
+        proc = subprocess.run(
+            [bin_path, "-p", "ok"],
+            capture_output=True, text=True, timeout=REFRESH_TIMEOUT_SECONDS,
+            cwd=os.path.expanduser("~"), env=env,
+        )
+        ok = proc.returncode == 0
+        logger.info(f"claude -p 종료 (rc={proc.returncode})")
+        if not ok:
+            logger.warning(f"claude -p stderr: {(proc.stderr or '')[:300]}")
+    except subprocess.TimeoutExpired:
+        logger.warning(f"claude -p 타임아웃 ({REFRESH_TIMEOUT_SECONDS}초)")
+    except Exception as e:
+        logger.warning(f"claude -p 실행 실패: {e}")
+
+    # 성공 여부와 무관하게 재조회 — 토큰이 재발급됐다면 여기서 OAuth 캐시가 신선해져
+    # 다음 /api/usage 폴링부터 폴백이 살아난다.
+    try:
+        with _oauth_lock:
+            _oauth_cache["refreshing"] = True
+        _refresh_oauth_usage()
+    except Exception as e:
+        logger.warning(f"갱신 후 OAuth 재조회 실패: {e}")
+
+    with _refresh_lock:
+        _refresh_state["running"] = False
+        _refresh_state["last_ok"] = ok
+
+
+# ============================================================
 # 메인 스크래핑 함수 (데이터 소스 디스패치)
 # ============================================================
 
@@ -1306,6 +1391,40 @@ def api_usage():
                 "hint": "로그 파일(app.log)을 확인하세요.",
                 "timestamp": timestamp
             }), 500
+
+
+@app.route("/api/refresh", methods=["POST"])
+def api_refresh():
+    """
+    수동 토큰 갱신: claude -p 를 백그라운드로 한 번 실행해 만료된 OAuth 토큰을
+    Claude Code 가 재발급하게 한 뒤 OAuth 캐시를 재조회한다. 202 를 즉시 돌려주므로
+    호출자(위젯)는 1분쯤 뒤에 /api/usage 를 다시 폴링해 결과를 반영해야 한다.
+    """
+    logger.info("요청옴(/api/refresh)")
+    bin_path = _find_claude_bin()
+    if not bin_path:
+        return jsonify({
+            "started": False, "status": "unavailable",
+            "hint": "claude CLI 를 찾지 못했습니다. CCUBAR_CLAUDE_BIN 으로 경로를 지정하세요.",
+        }), 501
+
+    now = time.time()
+    with _refresh_lock:
+        if _refresh_state["running"]:
+            # 이미 도는 중 — 새로 안 띄우지만 곧 결과가 나오므로 재폴링 가치는 있다.
+            return jsonify({"started": False, "status": "running"}), 202
+        started_at = _refresh_state["started_at"]
+        if started_at is not None and now - started_at < REFRESH_COOLDOWN_SECONDS:
+            retry_after = int(REFRESH_COOLDOWN_SECONDS - (now - started_at))
+            return jsonify({
+                "started": False, "status": "cooldown",
+                "retry_after_seconds": retry_after,
+            }), 429
+        _refresh_state["running"] = True
+        _refresh_state["started_at"] = now
+
+    threading.Thread(target=_run_token_refresh, args=(bin_path,), daemon=True).start()
+    return jsonify({"started": True, "status": "started"}), 202
 
 
 # ============================================================
